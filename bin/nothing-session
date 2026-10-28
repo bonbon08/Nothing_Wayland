@@ -1,0 +1,26 @@
+#!/bin/sh
+# Entry point of the "Nothing" Wayland session (started by GDM/SDDM/greetd).
+export XDG_CURRENT_DESKTOP=Nothing
+export XDG_SESSION_DESKTOP=nothing
+export XDG_SESSION_TYPE=wayland
+export MOZ_ENABLE_WAYLAND=1
+export QT_QPA_PLATFORM="wayland;xcb"
+export QT_WAYLAND_DISABLE_WINDOWDECORATION=0
+export SDL_VIDEODRIVER="wayland,x11"
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+export _JAVA_AWT_WM_NONREPARENTING=1
+export GDK_BACKEND="wayland,x11"
+
+# keyboard layout from the Nothing config, otherwise from localectl
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/nothing-de/config.json"
+if [ -z "$XKB_DEFAULT_LAYOUT" ]; then
+    layout=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['keyboard']['layout'])" "$cfg" 2>/dev/null)
+    [ -z "$layout" ] && layout=$(localectl status 2>/dev/null | sed -n 's/.*X11 Layout: *//p')
+    [ -n "$layout" ] && export XKB_DEFAULT_LAYOUT="$layout"
+fi
+workspaces=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['workspaces'])" "$cfg" 2>/dev/null)
+
+if command -v dbus-run-session >/dev/null && [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+    exec dbus-run-session -- nothing-wm -w "${workspaces:-4}" -s nothing-session-start
+fi
+exec nothing-wm -w "${workspaces:-4}" -s nothing-session-start

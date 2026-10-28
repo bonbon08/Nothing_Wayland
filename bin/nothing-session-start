@@ -1,0 +1,29 @@
+#!/bin/sh
+# Runs inside nothing-wm once the compositor is up.
+vars="WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP NOTHING_WM_SOCK QT_QPA_PLATFORM MOZ_ENABLE_WAYLAND"
+if command -v dbus-update-activation-environment >/dev/null; then
+    dbus-update-activation-environment --systemd $vars 2>/dev/null || dbus-update-activation-environment $vars
+fi
+systemctl --user import-environment $vars 2>/dev/null
+systemctl --user start xdg-desktop-portal.service 2>/dev/null &
+
+# polkit agent (needed for user management, mounting, …)
+for agent in /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 \
+             /usr/libexec/polkit-gnome-authentication-agent-1 \
+             /usr/lib/mate-polkit/polkit-mate-authentication-agent-1 \
+             /usr/libexec/polkit-mate-authentication-agent-1 \
+             /usr/bin/lxpolkit; do
+    if [ -x "$agent" ]; then "$agent" & break; fi
+done
+
+# secrets for GNOME Online Accounts (usually already unlocked by PAM)
+if command -v gnome-keyring-daemon >/dev/null; then
+    gnome-keyring-daemon --start --components=secrets >/dev/null 2>&1
+fi
+
+# keep the shell alive
+# keep the shell alive as long as *this* compositor runs
+while kill -0 "${NOTHING_WM_PID:-$PPID}" 2>/dev/null; do
+    nothing-shell
+    sleep 1
+done

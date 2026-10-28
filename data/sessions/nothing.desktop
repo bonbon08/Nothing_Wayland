@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Nothing
+Comment=Nothing-Desktop auf Wayland (mit XWayland)
+Exec=nothing-session
+TryExec=nothing-wm
+Type=Application
+DesktopNames=Nothing

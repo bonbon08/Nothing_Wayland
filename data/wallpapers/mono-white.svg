@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="3840" height="2160" viewBox="0 0 3840 2160">
+  <rect width="3840" height="2160" fill="#ffffff"/>
+  <g fill="#000">
+    <circle cx="1920" cy="1080" r="10"/>
+  </g>
+  <text x="1920" y="1180" font-family="monospace" font-size="44" letter-spacing="18" fill="#000" text-anchor="middle" opacity="0.6">NOTHING</text>
+</svg>
