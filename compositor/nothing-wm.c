@@ -58,6 +58,9 @@
 #include <wlr/types/wlr_session_lock_v1.h>
 #include <wlr/types/wlr_single_pixel_buffer_v1.h>
 #include <wlr/types/wlr_subcompositor.h>
+#include <wlr/types/wlr_tablet_tool.h>
+#include <wlr/types/wlr_tablet_v2.h>
+#include <wlr/types/wlr_touch.h>
 #include <wlr/types/wlr_viewporter.h>
 #include <wlr/types/wlr_xcursor_manager.h>
 #include <wlr/types/wlr_xdg_activation_v1.h>
@@ -70,6 +73,7 @@
 #define MAX_WS 10
 #define TITLE_H 30
 #define BTN_SIZE 12
+#define MAX_TOUCH_POINTS 10
 
 enum node_kind { NODE_VIEW = 1, NODE_LAYER, NODE_UNMANAGED };
 
@@ -178,6 +182,16 @@ struct lock_surface {
 	struct wl_listener map, destroy;
 };
 
+/* a touch point stays glued to the surface it went down on; we remember
+ * that surface's origin in layout coordinates so later motion events can
+ * be translated into coordinates local to it */
+struct touch_point {
+	bool active;
+	int32_t id;
+	struct wlr_surface *surface;
+	double ox, oy;
+};
+
 struct server {
 	struct wl_display *display;
 	struct wl_event_loop *loop;
@@ -199,12 +213,16 @@ struct server {
 	struct wlr_relative_pointer_manager_v1 *relative_pointer;
 	struct wlr_cursor_shape_manager_v1 *cursor_shape;
 	struct wlr_session_lock_manager_v1 *lock_manager;
+	struct wlr_tablet_manager_v2 *tablet_mgr;
 
 	struct wlr_cursor *cursor;
 	struct wlr_xcursor_manager *xcursor_mgr;
 	struct wlr_seat *seat;
 
 	struct wl_list outputs, views, layers_list, keyboards, ipc_clients;
+	int n_touch;
+	struct touch_point touch_points[MAX_TOUCH_POINTS];
+	float out_scale;
 
 	enum cursor_mode cursor_mode;
 	struct view *grabbed;
@@ -241,6 +259,8 @@ struct server {
 		request_cursor, request_set_selection, request_set_primary,
 		request_activate, request_set_shape, new_lock, request_start_drag,
 		start_drag;
+	struct wl_listener touch_down, touch_up, touch_motion, touch_cancel, touch_frame,
+		tablet_tool_axis, tablet_tool_proximity, tablet_tool_tip, tablet_tool_button;
 };
 
 static void focus_view(struct view *view);
@@ -250,6 +270,7 @@ static void ipc_broadcast(struct server *server, const char *msg);
 static void view_set_visible(struct view *view);
 static void view_maximize(struct view *view, bool on);
 static void view_fullscreen(struct view *view, bool on);
+static void update_output_boxes(struct server *s);
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
@@ -909,6 +930,21 @@ static void ipc_handle(struct ipc_client *c, char *line) {
 			apply_keymap(s);
 		} else if (!strcmp(a1, "cursor_theme")) {
 			setenv("XCURSOR_THEME", val, 1);
+		} else if (!strcmp(a1, "scale")) {
+			float sc = atof(val);
+			if (sc > 0) {
+				s->out_scale = sc;
+				struct output *o;
+				wl_list_for_each(o, &s->outputs, link) {
+					struct wlr_output_state st;
+					wlr_output_state_init(&st);
+					wlr_output_state_set_scale(&st, sc);
+					wlr_output_commit_state(o->wlr_output, &st);
+					wlr_output_state_finish(&st);
+				}
+				update_output_boxes(s);
+				schedule_state(s);
+			}
 		}
 		wl_list_for_each(v, &s->views, link) {
 			deco_update(v);
@@ -1183,12 +1219,25 @@ static void server_new_input(struct wl_listener *l, void *data) {
 	case WLR_INPUT_DEVICE_POINTER:
 		wlr_cursor_attach_input_device(s->cursor, dev);
 		break;
+	case WLR_INPUT_DEVICE_TOUCH:
+		wlr_cursor_attach_input_device(s->cursor, dev);
+		s->n_touch++;
+		break;
+	case WLR_INPUT_DEVICE_TABLET: {
+		wlr_cursor_attach_input_device(s->cursor, dev);
+		struct wlr_tablet *tablet = wlr_tablet_from_input_device(dev);
+		tablet->data = wlr_tablet_create(s->tablet_mgr, s->seat, dev);
+		break;
+	}
 	default:
 		break;
 	}
 	uint32_t caps = WL_SEAT_CAPABILITY_POINTER;
 	if (!wl_list_empty(&s->keyboards)) {
 		caps |= WL_SEAT_CAPABILITY_KEYBOARD;
+	}
+	if (s->n_touch > 0) {
+		caps |= WL_SEAT_CAPABILITY_TOUCH;
 	}
 	wlr_seat_set_capabilities(s->seat, caps);
 }
@@ -1484,6 +1533,240 @@ static void seat_request_set_primary(struct wl_listener *l, void *data) {
 	struct server *s = wl_container_of(l, s, request_set_primary);
 	struct wlr_seat_request_set_primary_selection_event *ev = data;
 	wlr_seat_set_primary_selection(s->seat, ev->source, ev->serial);
+}
+
+/* ------------------------------------------------------------------ */
+/* touch                                                              */
+
+static struct touch_point *touch_point_find(struct server *s, int32_t id) {
+	for (int i = 0; i < MAX_TOUCH_POINTS; i++) {
+		if (s->touch_points[i].active && s->touch_points[i].id == id) {
+			return &s->touch_points[i];
+		}
+	}
+	return NULL;
+}
+
+static struct touch_point *touch_point_new(struct server *s, int32_t id) {
+	for (int i = 0; i < MAX_TOUCH_POINTS; i++) {
+		if (!s->touch_points[i].active) {
+			s->touch_points[i] = (struct touch_point){.active = true, .id = id};
+			return &s->touch_points[i];
+		}
+	}
+	return NULL;
+}
+
+static void touch_down(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, touch_down);
+	struct wlr_touch_down_event *ev = data;
+	double lx, ly;
+	wlr_cursor_absolute_to_layout_coords(s->cursor, &ev->touch->base, ev->x, ev->y, &lx, &ly);
+	double sx, sy;
+	struct view *v;
+	struct layer *ly2;
+	struct wlr_surface *surface = desktop_at(s, lx, ly, &sx, &sy, &v, &ly2, NULL);
+	struct touch_point *tp = touch_point_new(s, ev->touch_id);
+	if (!tp) {
+		return;
+	}
+	tp->surface = surface;
+	tp->ox = lx - sx;
+	tp->oy = ly - sy;
+	if (s->locked) {
+		if (surface) {
+			wlr_seat_touch_notify_down(s->seat, surface, ev->time_msec, ev->touch_id, sx, sy);
+		}
+		return;
+	}
+	if (v) {
+		if (s->focused_layer && s->focused_layer->surface->current.keyboard_interactive !=
+				ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE) {
+			s->focused_layer = NULL;
+		}
+		focus_view(v);
+	} else if (ly2 && ly2->surface->current.keyboard_interactive !=
+			ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE) {
+		focus_layer(s, ly2);
+	}
+	if (surface) {
+		wlr_seat_touch_notify_down(s->seat, surface, ev->time_msec, ev->touch_id, sx, sy);
+	}
+}
+
+static void touch_up(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, touch_up);
+	struct wlr_touch_up_event *ev = data;
+	struct touch_point *tp = touch_point_find(s, ev->touch_id);
+	if (tp) {
+		if (tp->surface) {
+			wlr_seat_touch_notify_up(s->seat, ev->time_msec, ev->touch_id);
+		}
+		tp->active = false;
+	}
+}
+
+static void touch_motion(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, touch_motion);
+	struct wlr_touch_motion_event *ev = data;
+	struct touch_point *tp = touch_point_find(s, ev->touch_id);
+	if (!tp || !tp->surface) {
+		return;
+	}
+	double lx, ly;
+	wlr_cursor_absolute_to_layout_coords(s->cursor, &ev->touch->base, ev->x, ev->y, &lx, &ly);
+	wlr_seat_touch_notify_motion(s->seat, ev->time_msec, ev->touch_id, lx - tp->ox, ly - tp->oy);
+}
+
+static void touch_cancel(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, touch_cancel);
+	struct wlr_touch_cancel_event *ev = data;
+	struct wlr_touch_point *point = wlr_seat_touch_get_point(s->seat, ev->touch_id);
+	if (point && point->client) {
+		wlr_seat_touch_notify_cancel(s->seat, point->client);
+	}
+	struct touch_point *tp = touch_point_find(s, ev->touch_id);
+	if (tp) {
+		tp->active = false;
+	}
+}
+
+static void touch_frame(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, touch_frame);
+	wlr_seat_touch_notify_frame(s->seat);
+}
+
+/* ------------------------------------------------------------------ */
+/* tablet tool (pen / stylus)                                        */
+
+static struct wlr_tablet_v2_tablet_tool *tablet_tool_v2(struct server *s,
+		struct wlr_tablet_tool *tool) {
+	if (!tool->data) {
+		tool->data = wlr_tablet_tool_create(s->tablet_mgr, s->seat, tool);
+	}
+	return tool->data;
+}
+
+/* true if the surface under the tool wants native tablet-v2 events; if not,
+ * we emulate a regular pointer so plain apps can still be used with the pen */
+static bool tablet_focus(struct server *s, struct wlr_tablet_v2_tablet *tablet,
+		double tx, double ty, struct wlr_surface **surface_out,
+		double *sx_out, double *sy_out) {
+	double sx, sy;
+	struct view *v;
+	struct layer *ly;
+	struct wlr_surface *surface = desktop_at(s, tx, ty, &sx, &sy, &v, &ly, NULL);
+	*surface_out = surface;
+	*sx_out = sx;
+	*sy_out = sy;
+	return surface && tablet && wlr_surface_accepts_tablet_v2(surface, tablet);
+}
+
+static void tablet_tool_proximity(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, tablet_tool_proximity);
+	struct wlr_tablet_tool_proximity_event *ev = data;
+	struct wlr_tablet_v2_tablet *tablet = ev->tablet->data;
+	struct wlr_tablet_v2_tablet_tool *tool = tablet_tool_v2(s, ev->tool);
+	if (ev->state == WLR_TABLET_TOOL_PROXIMITY_OUT) {
+		if (tool) {
+			wlr_tablet_v2_tablet_tool_notify_proximity_out(tool);
+		}
+		return;
+	}
+	wlr_cursor_warp_absolute(s->cursor, &ev->tablet->base, ev->x, ev->y);
+	process_motion(s, ev->time_msec);
+	struct wlr_surface *surface;
+	double sx, sy;
+	if (tablet_focus(s, tablet, s->cursor->x, s->cursor->y, &surface, &sx, &sy) && tool) {
+		wlr_tablet_v2_tablet_tool_notify_proximity_in(tool, tablet, surface);
+		wlr_tablet_v2_tablet_tool_notify_motion(tool, sx, sy);
+	}
+}
+
+static void tablet_tool_axis(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, tablet_tool_axis);
+	struct wlr_tablet_tool_axis_event *ev = data;
+	struct wlr_tablet_v2_tablet *tablet = ev->tablet->data;
+	struct wlr_tablet_v2_tablet_tool *tool = tablet_tool_v2(s, ev->tool);
+	if (ev->updated_axes & (WLR_TABLET_TOOL_AXIS_X | WLR_TABLET_TOOL_AXIS_Y)) {
+		wlr_cursor_warp_absolute(s->cursor, &ev->tablet->base, ev->x, ev->y);
+		process_motion(s, ev->time_msec);
+	}
+	struct wlr_surface *surface;
+	double sx, sy;
+	bool accepts = tablet_focus(s, tablet, s->cursor->x, s->cursor->y, &surface, &sx, &sy);
+	if (!accepts || !tool) {
+		return;
+	}
+	if (ev->updated_axes & (WLR_TABLET_TOOL_AXIS_X | WLR_TABLET_TOOL_AXIS_Y)) {
+		wlr_tablet_v2_tablet_tool_notify_motion(tool, sx, sy);
+	}
+	if (ev->updated_axes & WLR_TABLET_TOOL_AXIS_PRESSURE) {
+		wlr_tablet_v2_tablet_tool_notify_pressure(tool, ev->pressure);
+	}
+	if (ev->updated_axes & WLR_TABLET_TOOL_AXIS_DISTANCE) {
+		wlr_tablet_v2_tablet_tool_notify_distance(tool, ev->distance);
+	}
+	if (ev->updated_axes & (WLR_TABLET_TOOL_AXIS_TILT_X | WLR_TABLET_TOOL_AXIS_TILT_Y)) {
+		wlr_tablet_v2_tablet_tool_notify_tilt(tool, ev->tilt_x, ev->tilt_y);
+	}
+	if (ev->updated_axes & WLR_TABLET_TOOL_AXIS_ROTATION) {
+		wlr_tablet_v2_tablet_tool_notify_rotation(tool, ev->rotation);
+	}
+}
+
+static void tablet_tool_tip(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, tablet_tool_tip);
+	struct wlr_tablet_tool_tip_event *ev = data;
+	struct wlr_tablet_v2_tablet *tablet = ev->tablet->data;
+	struct wlr_tablet_v2_tablet_tool *tool = tablet_tool_v2(s, ev->tool);
+
+	double sx, sy;
+	struct view *v;
+	struct layer *ly;
+	struct wlr_surface *surface = desktop_at(s, s->cursor->x, s->cursor->y, &sx, &sy, &v, &ly, NULL);
+	bool accepts = surface && tablet && wlr_surface_accepts_tablet_v2(surface, tablet);
+	bool down = ev->state == WLR_TABLET_TOOL_TIP_DOWN;
+
+	if (down && !s->locked) {
+		if (v) {
+			if (s->focused_layer && s->focused_layer->surface->current.keyboard_interactive !=
+					ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE) {
+				s->focused_layer = NULL;
+			}
+			focus_view(v);
+		} else if (ly && ly->surface->current.keyboard_interactive !=
+				ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE) {
+			focus_layer(s, ly);
+		}
+	}
+
+	if (accepts && tool) {
+		if (down) {
+			wlr_tablet_v2_tablet_tool_notify_down(tool);
+		} else {
+			wlr_tablet_v2_tablet_tool_notify_up(tool);
+		}
+		return;
+	}
+	/* app has no tablet-v2 support: emulate a left click so it still works */
+	wlr_seat_pointer_notify_button(s->seat, ev->time_msec, BTN_LEFT,
+		down ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
+	wlr_seat_pointer_notify_frame(s->seat);
+}
+
+static void tablet_tool_button(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, tablet_tool_button);
+	struct wlr_tablet_tool_button_event *ev = data;
+	struct wlr_tablet_v2_tablet *tablet = ev->tablet->data;
+	struct wlr_tablet_v2_tablet_tool *tool = tablet_tool_v2(s, ev->tool);
+	struct wlr_surface *surface;
+	double sx, sy;
+	if (tablet_focus(s, tablet, s->cursor->x, s->cursor->y, &surface, &sx, &sy) && tool) {
+		wlr_tablet_v2_tablet_tool_notify_button(tool, ev->button,
+			ev->state == WLR_BUTTON_PRESSED ? ZWP_TABLET_PAD_V2_BUTTON_STATE_PRESSED :
+				ZWP_TABLET_PAD_V2_BUTTON_STATE_RELEASED);
+	}
 }
 
 /* ------------------------------------------------------------------ */
@@ -2333,8 +2616,12 @@ static void server_new_output(struct wl_listener *l, void *data) {
 		wlr_output_state_set_mode(&st, mode);
 	}
 	const char *scale = getenv("NOTHING_WM_SCALE");
-	if (scale && atof(scale) > 0) {
-		wlr_output_state_set_scale(&st, atof(scale));
+	float sc = (scale && atof(scale) > 0) ? atof(scale) : 0;
+	if (s->out_scale > 0) {
+		sc = s->out_scale; /* set live via "config scale" since this session started */
+	}
+	if (sc > 0) {
+		wlr_output_state_set_scale(&st, sc);
 	}
 	wlr_output_commit_state(wo, &st);
 	wlr_output_state_finish(&st);
@@ -2474,6 +2761,8 @@ int main(int argc, char *argv[]) {
 	s.new_lock.notify = new_lock;
 	wl_signal_add(&s.lock_manager->events.new_lock, &s.new_lock);
 
+	s.tablet_mgr = wlr_tablet_v2_create(s.display);
+
 	s.cursor = wlr_cursor_create();
 	wlr_cursor_attach_output_layout(s.cursor, s.output_layout);
 	const char *ctheme = getenv("XCURSOR_THEME");
@@ -2494,6 +2783,26 @@ int main(int argc, char *argv[]) {
 	wl_signal_add(&s.cursor->events.axis, &s.cursor_axis);
 	s.cursor_frame.notify = cursor_frame;
 	wl_signal_add(&s.cursor->events.frame, &s.cursor_frame);
+
+	s.touch_down.notify = touch_down;
+	wl_signal_add(&s.cursor->events.touch_down, &s.touch_down);
+	s.touch_up.notify = touch_up;
+	wl_signal_add(&s.cursor->events.touch_up, &s.touch_up);
+	s.touch_motion.notify = touch_motion;
+	wl_signal_add(&s.cursor->events.touch_motion, &s.touch_motion);
+	s.touch_cancel.notify = touch_cancel;
+	wl_signal_add(&s.cursor->events.touch_cancel, &s.touch_cancel);
+	s.touch_frame.notify = touch_frame;
+	wl_signal_add(&s.cursor->events.touch_frame, &s.touch_frame);
+
+	s.tablet_tool_axis.notify = tablet_tool_axis;
+	wl_signal_add(&s.cursor->events.tablet_tool_axis, &s.tablet_tool_axis);
+	s.tablet_tool_proximity.notify = tablet_tool_proximity;
+	wl_signal_add(&s.cursor->events.tablet_tool_proximity, &s.tablet_tool_proximity);
+	s.tablet_tool_tip.notify = tablet_tool_tip;
+	wl_signal_add(&s.cursor->events.tablet_tool_tip, &s.tablet_tool_tip);
+	s.tablet_tool_button.notify = tablet_tool_button;
+	wl_signal_add(&s.cursor->events.tablet_tool_button, &s.tablet_tool_button);
 
 	s.new_input.notify = server_new_input;
 	wl_signal_add(&s.backend->events.new_input, &s.new_input);

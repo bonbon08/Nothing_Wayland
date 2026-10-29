@@ -61,7 +61,7 @@ Klein = 172×172, breit = 360×172, groß = 360×360 Pixel.
 
 | Variable | Wirkung |
 |---|---|
-| `NOTHING_WM_SCALE` | Skalierung aller Ausgänge, z. B. `1.5` für HiDPI |
+| `NOTHING_WM_SCALE` | Skalierung aller Ausgänge beim Start, z. B. `1.5` für HiDPI (wird auch über Einstellungen → Darstellung → Skalierung gesetzt, dort live ohne Neuanmeldung) |
 | `XKB_DEFAULT_LAYOUT` / `_VARIANT` / `_OPTIONS` | Tastaturbelegung beim Start des Compositors |
 | `XCURSOR_THEME` / `XCURSOR_SIZE` | Mauszeiger |
 | `NOTHING_WM_DEBUG=1` | Ausführliche Logs des Compositors |

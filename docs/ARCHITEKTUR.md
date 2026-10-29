@@ -70,9 +70,15 @@ Standardwert. Ein ignoriertes `SIGCHLD` würde vererbt und bricht dann z. B. Xwa
 übernimmt `wlr_seat_start_pointer_drag`. Unter Wayland läuft jedes Ziehen über den Compositor, auch
 innerhalb einer App, also auch das Umsortieren im Dock.
 
+**Touch & Stift:** Touch-Punkte bleiben an der Fläche hängen, auf der sie begonnen haben (`touch_down` merkt
+sich deren Ursprung in Layout-Koordinaten, spätere `touch_motion`-Events werden relativ dazu umgerechnet).
+Tablet-Werkzeuge (Stift) laufen über `wlr_tablet_v2`; Apps, die das Protokoll nicht unterstützen
+(`wlr_surface_accepts_tablet_v2` liefert `false`), bekommen stattdessen einen normalen Maus-Klick emuliert,
+damit der Stift auch dort funktioniert.
+
 **Weitere Protokolle:** Zwischenablage (data-device, primary-selection, wlr/ext-data-control), Viewporter,
 Presentation-Time, Fractional-Scale, Cursor-Shape, xdg-activation, screencopy, ext-image-copy-capture,
-export-dmabuf, gamma-control, idle-notify und idle-inhibit, xdg-output, Relative-Pointer.
+export-dmabuf, gamma-control, idle-notify und idle-inhibit, xdg-output, Relative-Pointer, Tablet-v2.
 
 ## Shell (`shell/nothing_de/`)
 

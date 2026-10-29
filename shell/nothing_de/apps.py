@@ -88,15 +88,63 @@ class AppIndex:
         return [t[2] for t in scored]
 
 
+def _exec_fallback(app, uris=None):
+    """Parse Exec= ourselves and fork it directly, bypassing GIO's
+    xdg-activation-token / D-Bus activation machinery entirely. Used when the
+    normal launch path fails, which it can do silently on a minimal
+    compositor without breaking stride for the user."""
+    cmdline = app.get_commandline()
+    if not cmdline:
+        return False
+    try:
+        ok, argv = GLib.shell_parse_argv(cmdline)
+    except GLib.Error:
+        return False
+    if not ok or not argv:
+        return False
+    paths = []
+    for u in uris or []:
+        f = Gio.File.new_for_uri(u) if "://" in u else Gio.File.new_for_path(u)
+        paths.append(f.get_path() or u)
+    out = []
+    for tok in argv:
+        if tok in ("%f", "%u"):
+            if paths:
+                out.append(paths[0])
+        elif tok in ("%F", "%U"):
+            out.extend(paths)
+        elif tok == "%i":
+            icon = app.get_string("Icon")
+            if icon:
+                out.extend(["--icon", icon])
+        elif tok == "%c":
+            out.append(app.get_display_name() or "")
+        elif tok == "%k":
+            out.append(app.get_filename() or "")
+        elif tok == "%%":
+            out.append("%")
+        else:
+            out.append(tok)
+    try:
+        subprocess.Popen(out, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         cwd=app.get_string("Path") or None)
+        return True
+    except (OSError, ValueError) as e:
+        print("nothing-de: exec fallback failed:", e)
+        return False
+
+
 def launch_app(app, uris=None):
     if app is None:
         return False
-    ctx = Gdk.Display.get_default().get_app_launch_context()
     try:
-        return app.launch_uris(uris or [], ctx)
-    except GLib.Error as e:
-        print("nothing-de: launch failed:", e.message)
-        return False
+        ctx = Gdk.Display.get_default().get_app_launch_context()
+        if app.launch_uris(uris or [], ctx):
+            return True
+    except Exception as e:
+        print("nothing-de: launch via GIO failed, trying direct exec:", e)
+    return _exec_fallback(app, uris)
 
 
 def spawn(cmd):

@@ -87,6 +87,7 @@ class Shell:
             self.wm.config("kb_layout", kb.get("layout"))
         self.wm.config("kb_variant", kb.get("variant") or "")
         self.wm.config("kb_options", kb.get("options") or "")
+        self.wm.config("scale", self.cfg.get("display.scale") or 1.0)
 
     # ----------------------------------------------------------- actions
     def run_action(self, name):

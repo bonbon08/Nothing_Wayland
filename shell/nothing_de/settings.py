@@ -102,6 +102,16 @@ class AppearancePage:
         g.add(row)
         self.widget.add(g)
 
+        g = group("Anzeige", "Für sehr hochauflösende Bildschirme, auf denen alles winzig wirkt.")
+        self._scales = [1.0, 1.25, 1.5, 1.75, 2.0]
+        self.scale_row = Adw.ComboRow(
+            title="Skalierung",
+            model=Gtk.StringList.new(["100 %", "125 %", "150 %", "175 %", "200 %"]))
+        self.scale_row.connect("notify::selected",
+            lambda r, _p: cfg.set("display.scale", self._scales[r.get_selected()]))
+        g.add(self.scale_row)
+        self.widget.add(g)
+
         g = group("Hintergrundbild")
         self.preview = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, height_request=200,
                                    can_shrink=True)
@@ -188,6 +198,9 @@ class AppearancePage:
 
     def sync(self):
         self.dark_row.set_active(self.cfg.get("theme") != "light")
+        scale = self.cfg.get("display.scale") or 1.0
+        self.scale_row.set_selected(min(range(len(self._scales)),
+            key=lambda i: abs(self._scales[i] - scale)))
         for b in self.swatches:
             if b.hex.lower() == (self.cfg.get("accent") or "").lower():
                 b.add_css_class("sel")

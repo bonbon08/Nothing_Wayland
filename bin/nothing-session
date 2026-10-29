@@ -19,6 +19,10 @@ if [ -z "$XKB_DEFAULT_LAYOUT" ]; then
     [ -n "$layout" ] && export XKB_DEFAULT_LAYOUT="$layout"
 fi
 workspaces=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['workspaces'])" "$cfg" 2>/dev/null)
+if [ -z "$NOTHING_WM_SCALE" ]; then
+    scale=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('display', {}).get('scale', 1))" "$cfg" 2>/dev/null)
+    [ -n "$scale" ] && [ "$scale" != "1" ] && [ "$scale" != "1.0" ] && export NOTHING_WM_SCALE="$scale"
+fi
 
 if command -v dbus-run-session >/dev/null && [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
     exec dbus-run-session -- nothing-wm -w "${workspaces:-4}" -s nothing-session-start

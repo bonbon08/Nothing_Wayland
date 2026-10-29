@@ -50,6 +50,7 @@ Fenster-IDs (`ID`) stammen aus `state`. Arbeitsflächen werden ab 1 gezählt.
 | `dark` | `1` oder `0` |
 | `kb_layout`, `kb_variant`, `kb_options` | XKB-Werte, z. B. `de`, `nodeadkeys`, `caps:escape` |
 | `cursor_theme` | Name des Cursor-Themes (setzt `XCURSOR_THEME` für danach gestartete Programme) |
+| `scale` | Skalierungsfaktor aller Ausgänge, z. B. `1.5`; wirkt sofort auf alle angeschlossenen Monitore |
 
 Die Shell sendet diese Werte beim Verbinden und bei jeder Änderung von `config.json`.
 

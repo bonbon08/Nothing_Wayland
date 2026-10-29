@@ -51,6 +51,7 @@ DEFAULTS = {
     "wallpaper_fit": "cover",        # cover | contain | fill
     "background_color": "#000000",
     "workspaces": 4,
+    "display": {"scale": 1.0},
     "terminal": "",
     "files": "",
     "keyboard": {"layout": "de", "variant": "", "options": ""},
