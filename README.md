@@ -1,58 +1,42 @@
 # Nothing Desktop
 
-Eine Wayland-Desktopumgebung im Stil von Nothing OS, aufgebaut wie macOS mit einer
-Leiste oben und einem Dock unten. X11-Programme laufen über XWayland.
+Eine Wayland-Desktopumgebung im Stil von **Nothing OS**. Sie ist aufgebaut wie macOS: oben eine Leiste,
+unten ein Dock und dazwischen ein Schreibtisch mit Widgets. X11-Programme laufen über **XWayland**.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│ ⠿  Firefox  Titel …          ▬ • • •        📶 🔊 Mi 28. 22:24 │  ← Leiste (layer-shell, oben)
-│                                                              │
-│  ┌───────────┐ ┌─────┐                                       │
-│  │ 22:24     │ │ 8°  │   Widgets auf dem Schreibtisch         │  ← Hintergrund-Layer
-│  └───────────┘ └─────┘                                       │
-│                    ┌─────────────────────┐                   │
-│                    │ ⠿ │ 📁 🦊 >_ 📝 │ ⚙ │                   │  ← Dock
-└──────────────────────────────────────────────────────────────┘
-```
+![Schreibtisch mit Widgets](docs/screenshots/desktop.png)
 
-## Komponenten
+| Fenster (Wayland + X11) | Helles Design, blaue Kontrastfarbe |
+|---|---|
+| ![Fenster](docs/screenshots/windows.png) | ![Hell](docs/screenshots/light.png) |
+| **App-Suche** (Super + Leertaste) | **Kontrollzentrum** (Super + A) |
+| ![App-Suche](docs/screenshots/launcher.png) | ![Kontrollzentrum](docs/screenshots/control.png) |
+| **Einstellungen** | **Online-Konten** (Google, Microsoft, Nextcloud …) |
+| ![Einstellungen](docs/screenshots/settings-appearance.png) | ![Online-Konten](docs/screenshots/settings-accounts.png) |
 
-| Teil | Sprache | Aufgabe |
-|---|---|---|
-| `compositor/nothing-wm.c` | C, wlroots 0.20 | Wayland-Compositor: xdg-shell, **XWayland**, layer-shell, **virtuelle Arbeitsflächen**, Session-Lock, Screencopy, Zwischenablage, IPC-Socket |
-| `shell/nothing_de/` | Python, GTK4, gtk4-layer-shell | Leiste, Dock, Schreibtisch mit Widgets, App-Suche, Kontrollzentrum, Benachrichtigungen, Sperrbildschirm |
-| `shell/nothing_de/settings.py` | Python, libadwaita | Einstellungs-App |
-| `bin/` | sh | Sitzungsstart, Shell-Launcher, `nothing-msg` (IPC-Werkzeug) |
-
-Shell und Compositor sprechen über einen Unix-Socket (`$NOTHING_WM_SOCK`, zeilenbasiert, Antworten als JSON).
-Die Konfiguration liegt in `~/.config/nothing-de/config.json`. Die Einstellungs-App schreibt sie, und die Shell
-übernimmt Änderungen sofort, ohne Neustart.
+Weitere Bilder: [Sperrbildschirm](docs/screenshots/lock.png) · [Rechtsklick-Menü](docs/screenshots/menu.png) ·
+[Rechner in der Suche](docs/screenshots/calc.png) · [Widgets](docs/screenshots/settings-widgets.png) ·
+[Dock & Leiste](docs/screenshots/settings-dock.png) · [Standard-Apps](docs/screenshots/settings-apps.png) ·
+[Benutzer](docs/screenshots/settings-users.png) · [Info](docs/screenshots/settings-about.png)
 
 ## Funktionen
 
-- **Design im Nothing-Stil:** Schwarz/Weiß, Punktmatrix-Ziffern (selbst gezeichnet, keine Schriftart nötig), runde Karten,
-  Beschriftungen in Monospace-Großbuchstaben. Helles und dunkles Design.
-- **Wählbare Kontrastfarbe:** Neun Vorgaben oder eine eigene Farbe. Sie gilt für die Shell, die Fensterknöpfe von
-  X11-Fenstern und libadwaita-Apps (über GNOMEs `accent-color`).
-- **Hintergrundbild:** Mitgelieferte Nothing-Motive, Systemhintergründe oder ein eigenes Bild. Wählbar sind
-  Füllen, Einpassen oder Strecken, dazu eine Hintergrundfarbe.
+- **Eigener Wayland-Compositor** (`nothing-wm`, C, wlroots 0.20) mit XWayland, virtuellen Arbeitsflächen,
+  Sperrbildschirm (ext-session-lock), Bildschirmfotos (screencopy) und Zwischenablage-Protokollen.
+- **Design im Nothing-Stil:** Schwarz/Weiß, Punktmatrix-Ziffern (selbst gezeichnet, keine Schriftart nötig),
+  runde Karten, Beschriftungen in Monospace-Großbuchstaben. Helles und dunkles Design.
+- **Wählbare Kontrastfarbe:** neun Vorgaben oder eine eigene Farbe. Sie gilt für Shell, X11-Titelleisten und
+  libadwaita-Apps.
+- **Hintergrundbild:** mitgelieferte Nothing-Motive, Systemhintergründe oder ein eigenes Bild.
 - **Widgets:** Uhr (Punktmatrix), Analoguhr, Wetter (open-meteo, ohne Konto), Akku, System (CPU/RAM),
-  Kalender, Notizen, Medien (MPRIS) und Foto. Hinzufügen und verschieben geht per Rechtsklick auf den
-  Schreibtisch → *Widgets bearbeiten*.
-- **Leiste:** Systemmenü (Sperren, Bereitschaft, Neustart, Ausschalten, Abmelden), Name der aktiven App mit Fenstermenü,
-  Punkte für die Arbeitsflächen, Netzwerk, Lautstärke, Akku, Uhr mit Kalender.
-- **Dock:** Angeheftete Apps und laufende Fenster, nach App gruppiert. Ein Punkt markiert laufende Apps, ein Punkt in
-  Kontrastfarbe die aktive. Linksklick fokussiert, minimiert oder wechselt zwischen den Fenstern einer App. Rechtsklick
-  öffnet ein Menü mit Fensterliste, *Im Dock behalten* und *Beenden*.
-- **Mehrere Arbeitsflächen** (1–10).
-- **Kontrollzentrum:** WLAN, Bluetooth, Dunkelmodus, *Nicht stören*, Lautstärke, Helligkeit (über logind, ohne root),
-  Kontrastfarbe, Ein/Aus.
-- **Einstellungs-App:** Darstellung, Widgets und Wetterort, Dock und Leiste, Arbeitsflächen, Standard-Apps
-  (Browser, Mail, Musik, Video …), Tastaturbelegung, **Benutzer** (AccountsService: Name, Bild, Passwort,
-  Benutzer anlegen und löschen) sowie **Online-Konten** (GNOME Online Accounts: Google, Microsoft 365, Nextcloud,
-  IMAP …; einzelne Dienste ein- und ausschalten).
-- **Sperrbildschirm** über ext-session-lock. Das Passwort prüft `unix_chkpwd`.
-- **Benachrichtigungsdienst** (`org.freedesktop.Notifications`).
+  Kalender, Notizen, Medien (MPRIS) und Foto. Sie lassen sich frei verschieben.
+- **Leiste:** Systemmenü, Name der aktiven App mit Fenstermenü, Punkte für die Arbeitsflächen, Netzwerk,
+  Lautstärke, Akku, Uhr mit Kalender.
+- **Dock:** angeheftete und laufende Apps, nach App gruppiert, mit Punkt für laufende Apps und Kontrastfarbe für
+  die aktive.
+- **Kontrollzentrum:** WLAN, Bluetooth, Dunkelmodus, *Nicht stören*, Lautstärke, Helligkeit, Kontrastfarbe, Ein/Aus.
+- **Einstellungs-App:** Darstellung, Widgets, Dock und Leiste, Arbeitsflächen, Standard-Apps, Tastatur,
+  Benutzer (AccountsService) und Online-Konten (GNOME Online Accounts).
+- **Benachrichtigungen** (`org.freedesktop.Notifications`).
 
 ## Installation (Arch Linux)
 
@@ -65,13 +49,14 @@ makepkg -si
 
 Danach abmelden und im Anmeldebildschirm (GDM/SDDM) die Sitzung **Nothing** wählen.
 
-### Ausprobieren ohne Abmelden
-
-Innerhalb von GNOME startet der Compositor als Fenster:
+Ausprobieren ohne Abmelden, als Fenster innerhalb einer laufenden Wayland-Sitzung:
 
 ```sh
 WLR_BACKENDS=wayland nothing-wm -s nothing-shell
 ```
+
+> In diesem Modus ändert ein Wechsel von Kontrastfarbe oder Hell/Dunkel auch die GNOME-Einstellungen der
+> umgebenden Sitzung, denn darüber folgen libadwaita-Apps dem Design.
 
 ## Tastenkürzel
 
@@ -91,24 +76,35 @@ WLR_BACKENDS=wayland nothing-wm -s nothing-shell
 | Alt + Tab | Fenster wechseln |
 | Druck | Bildschirmfoto (`grim`) |
 | Super + Umschalt + Esc | Abmelden |
-| Strg + Alt + F1 … F12 | Zu einer anderen virtuellen Konsole (TTY) wechseln |
 
-Eigene Kürzel lassen sich über `nothing-msg` an andere Programme binden, z. B. `nothing-msg action launcher`,
-`nothing-msg ws 3` oder `nothing-msg state`.
+Eigene Kürzel und Skripte steuern den Compositor über `nothing-msg`, siehe [IPC](docs/IPC.md).
 
-## Umgebungsvariablen
+## Dokumentation
 
-- `NOTHING_WM_SCALE=1.5` setzt die Skalierung für HiDPI-Bildschirme.
-- `XKB_DEFAULT_LAYOUT=de` setzt die Tastaturbelegung beim Start. Später übernimmt die Einstellungs-App.
-- `NOTHING_WM_DEBUG=1` schaltet ausführliche Logs ein.
+| Seite | Inhalt |
+|---|---|
+| [Architektur](docs/ARCHITEKTUR.md) | Wie Compositor, Shell und Einstellungen zusammenspielen |
+| [Konfiguration](docs/KONFIGURATION.md) | Alle Schlüssel von `config.json`, Umgebungsvariablen, Dateipfade |
+| [IPC](docs/IPC.md) | Socket-Protokoll und `nothing-msg` |
+| [Entwicklung & Tests](docs/ENTWICKLUNG.md) | Bauen, Code-Aufbau, Testen ohne Bildschirm und in einer VM |
 
-## Bekannte Grenzen / nächste Schritte
+## Stand und Grenzen
 
-- Für **Google- und Microsoft-Konten** öffnet der Hinzufügen-Dialog `gnome-control-center online-accounts`, denn
-  der interaktive OAuth-Dialog von GOA steckt dort. Auflisten, Dienste schalten und Entfernen geschieht direkt in
-  den Nothing-Einstellungen.
-- Es gibt keine Bildschirmverwaltung (Anordnung, Auflösung) in der UI. Mehrere Monitore werden automatisch
-  nebeneinander gesetzt, und jeder Monitor bekommt eine eigene Leiste und ein eigenes Hintergrundbild.
-- Die Titelleisten von X11-Fenstern sind minimal: drei Knöpfe ohne Titeltext. Wayland-Apps zeichnen ihre
-  Dekoration selbst (CSD).
+Getestet unter Arch Linux in einer QEMU/KVM-VM: Sitzung auf DRM, Wayland- und X11-Apps, Tastenkürzel,
+Maus, Sperrbildschirm, Dock, App-Suche, Kontrollzentrum und Einstellungen. Ton, Bluetooth und WLAN konnten
+mangels Hardware in der VM nicht geprüft werden, ebenso wenig ein echter Google-Login.
+
+- Zum **Hinzufügen** von Google- oder Microsoft-Konten öffnet sich `gnome-control-center online-accounts`,
+  weil GNOMEs Anmeldedialog nur dort steckt. Auflisten, Dienste schalten und Entfernen geht direkt in den
+  Nothing-Einstellungen.
+- Es gibt keine Bildschirmverwaltung in der Oberfläche. Mehrere Monitore werden automatisch nebeneinander
+  gesetzt. HiDPI stellst du über `NOTHING_WM_SCALE` ein.
+- X11-Fenster bekommen eine schlichte Titelleiste mit drei Knöpfen und ohne Titeltext.
 - Fenster lassen sich nicht kacheln.
+
+## Lizenz
+
+MIT, siehe [LICENSE](LICENSE). `compositor/protocols/wlr-layer-shell-unstable-v1.xml` stammt aus
+[wlr-protocols](https://gitlab.freedesktop.org/wlroots/wlr-protocols) und hat eigene Copyright-Angaben im Kopf.
+„Nothing“ und Nothing OS sind Marken von Nothing Technology Ltd. Dieses Projekt ist eine inoffizielle
+Hommage an deren Design und steht in keiner Verbindung zu dem Unternehmen.
