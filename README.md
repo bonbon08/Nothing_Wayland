@@ -34,12 +34,16 @@ Weitere Bilder: [Sperrbildschirm](docs/screenshots/lock.png) · [Rechtsklick-Men
   Kalender, Notizen, Medien (MPRIS) und Foto. Sie lassen sich frei verschieben.
 - **Leiste:** Systemmenü, Name der aktiven App mit Fenstermenü, Punkte für die Arbeitsflächen, Netzwerk,
   Lautstärke, Akku, Uhr mit Kalender.
+- **App-Symbole im Nothing-Stil:** Jede App bekommt automatisch ein einfarbiges Symbol auf einem runden,
+  dunklen Grund, auch Apps ohne passendes Symbol. Das Motiv wird aus dem normalen Symbol herausgerechnet.
+  Auf Wunsch lassen sich die Originalsymbole einschalten.
 - **Dock:** angeheftete und laufende Apps, nach App gruppiert, mit Punkt für laufende Apps und Kontrastfarbe für
   die aktive. Anheften und Sortieren geht direkt, ohne Einstellungen:
   - Symbole im Dock **per Ziehen umsortieren**; eine Linie in Kontrastfarbe zeigt die Ablagestelle
   - Apps aus der **App-Suche ins Dock ziehen** oder dort per **Rechtsklick → „Im Dock behalten“** anheften
   - laufende Apps per Rechtsklick anheften; „Nach links/rechts verschieben“ und „Aus dem Dock entfernen“
   - bei vielen Apps werden die Symbole automatisch kleiner, damit alles auf den Bildschirm passt
+  - der Knopf für die App-Suche sitzt wahlweise links oder rechts (Einstellungen → Dock & Leiste)
 - **Kontrollzentrum:** WLAN, Bluetooth, Dunkelmodus, *Nicht stören*, Lautstärke, Helligkeit, Kontrastfarbe, Ein/Aus.
 - **Einstellungs-App:** Darstellung, Widgets, Dock und Leiste, Arbeitsflächen, Standard-Apps, Tastatur,
   Benutzer (AccountsService) und Online-Konten (GNOME Online Accounts).

@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 PREFIX="${PREFIX:-/usr/local}"
 SUDO="${SUDO-sudo}"
 
-DEPS="wlroots0.20 xorg-xwayland gtk4 gtk4-layer-shell libadwaita python python-gobject python-cairo
+DEPS="wlroots0.20 xorg-xwayland gtk4 gtk4-layer-shell libadwaita python python-gobject python-cairo python-numpy
 meson ninja wayland-protocols gnome-online-accounts accountsservice polkit-gnome networkmanager
 wireplumber bluez-utils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr
 gnome-keyring grim slurp wl-clipboard"

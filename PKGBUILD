@@ -5,7 +5,7 @@ pkgrel=1
 pkgdesc="Nothing OS styled Wayland desktop (compositor, shell, settings)"
 arch=(x86_64)
 license=(MIT)
-depends=(wlroots0.20 xorg-xwayland gtk4 gtk4-layer-shell libadwaita python python-gobject python-cairo
+depends=(wlroots0.20 xorg-xwayland gtk4 gtk4-layer-shell libadwaita python python-gobject python-cairo python-numpy
          gnome-online-accounts accountsservice polkit-gnome xdg-desktop-portal-gtk xdg-desktop-portal-wlr)
 optdepends=('networkmanager: network status and Wi-Fi toggle'
             'wireplumber: volume control'

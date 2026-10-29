@@ -5,7 +5,8 @@ import operator
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import layer
-from .apps import app_icon, launch_app
+from .apps import launch_app
+from .icons import icon_widget
 
 _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
         ast.Div: operator.truediv, ast.Pow: operator.pow, ast.Mod: operator.mod,
@@ -98,7 +99,7 @@ class Launcher(layer.Overlay):
         for app in self.shell.apps.search(q)[:120]:
             tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             tile.add_css_class("n-app-tile")
-            img = Gtk.Image(gicon=app_icon(app), pixel_size=52)
+            img = icon_widget(app, 52, self.shell.cfg)
             tile.append(img)
             lbl = Gtk.Label(label=app.get_display_name(), ellipsize=Pango.EllipsizeMode.END,
                             max_width_chars=12, justify=Gtk.Justification.CENTER)

@@ -4,7 +4,8 @@ import math
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
 from . import layer
-from .apps import app_icon, launch_app
+from .apps import launch_app
+from .icons import icon_widget
 from .theme import hex_to_rgb
 
 
@@ -18,7 +19,7 @@ class DockItem(Gtk.Box):
         self._cycle = 0
         self.btn = Gtk.Button()
         self.btn.add_css_class("n-dock-item")
-        self.img = Gtk.Image(gicon=app_icon(app), pixel_size=size)
+        self.img = icon_widget(app, size, dock.cfg)
         self.btn.set_child(self.img)
         name = app.get_display_name() if app else key
         self.btn.set_tooltip_text(name)
@@ -237,11 +238,13 @@ class Dock(Gtk.ApplicationWindow):
         btn.set_tooltip_text("Apps")
         art = Gtk.DrawingArea(content_width=size, content_height=size)
 
+        round_plate = self.cfg.get("icons") != "original"
+
         def draw(area, cr, w, h):
             fg = area.get_color()
             acc = hex_to_rgb(self.cfg.get("accent"))
             cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.12)
-            r = w * 0.26
+            r = w * (0.5 if round_plate else 0.26)
             cr.new_sub_path()
             cr.arc(w - r, r, r, -math.pi / 2, 0)
             cr.arc(w - r, h - r, r, 0, math.pi / 2)
@@ -291,31 +294,37 @@ class Dock(Gtk.ApplicationWindow):
             groups[key][1].append(w)
 
         size = self._fit_size(wanted, 1 + len(order) + len(running_order))
-        layout_key = (size, tuple(order), tuple(running_order),
-                      self.cfg.get("accent"))
+        launcher_right = self.cfg.get("dock.launcher") == "right"
+        layout_key = (size, tuple(order), tuple(running_order), self.cfg.get("accent"),
+                      self.cfg.get("icons"), launcher_right)
         if layout_key != self._layout_key:
             self._layout_key = layout_key
             while (c := self.box.get_first_child()) is not None:
                 self.box.remove(c)
             self.items = {}
             self._gap_item = None
-            self.box.append(self._launcher_button(size))
-            sep = Gtk.Box()
-            sep.add_css_class("n-dock-sep")
-            self.box.append(sep)
+            if not launcher_right:
+                self.box.append(self._launcher_button(size))
+                self._separator()
             for key in order:
                 self._add(key, groups[key][0], size)
             if running_order:
-                sep2 = Gtk.Box()
-                sep2.add_css_class("n-dock-sep")
-                self.box.append(sep2)
+                self._separator()
             for key in running_order:
                 self._add(key, groups[key][0], size)
+            if launcher_right:
+                self._separator()
+                self.box.append(self._launcher_button(size))
             # layer windows never shrink on their own; drop the old size
             self.set_default_size(1, 1)
         focused = st.get("focused")
         for key, item in self.items.items():
             item.set_windows(groups.get(key, (None, []))[1], focused)
+
+    def _separator(self):
+        sep = Gtk.Box()
+        sep.add_css_class("n-dock-sep")
+        self.box.append(sep)
 
     def _add(self, key, app, size):
         item = DockItem(self, key, app, size)

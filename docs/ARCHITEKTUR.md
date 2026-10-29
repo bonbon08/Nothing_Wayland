@@ -93,6 +93,7 @@ export-dmabuf, gamma-control, idle-notify und idle-inhibit, xdg-output, Relative
 | `notifications.py` | Benachrichtigungsdienst |
 | `lockscreen.py` | Sperrbildschirm über `Gtk4SessionLock`; das Passwort prüft `unix_chkpwd` |
 | `system.py` | Lautstärke (wpctl/pactl), Helligkeit (logind), Netzwerk (NM), Bluetooth, Energie (logind) |
+| `icons.py` | Nothing-Symbole: leitet aus dem App-Symbol ein einfarbiges Motiv ab (symbolische Variante, Motiv auf einfarbiger Fläche oder Silhouette) und zeichnet es auf einen runden Grund |
 | `apps.py` | Index der `.desktop`-Dateien: ordnet App-IDs und X11-Klassen den Apps zu |
 | `settings.py` | Die Einstellungs-App (eigener Prozess) |
 

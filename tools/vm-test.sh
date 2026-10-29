@@ -18,7 +18,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIR="${NOTHING_VM_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/nothing-vm}"
 IMAGE_URL="https://fastly.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
 PORT="${NOTHING_VM_SSH_PORT:-2222}"
-PACKAGES="wlroots0.20 xorg-xwayland gtk4 gtk4-layer-shell libadwaita python-gobject python-cairo
+PACKAGES="wlroots0.20 xorg-xwayland gtk4 gtk4-layer-shell libadwaita python-gobject python-cairo python-numpy
 meson ninja gcc pkgconf wayland-protocols gnome-online-accounts accountsservice polkit-gnome
 networkmanager pipewire wireplumber pipewire-pulse xdg-desktop-portal-gtk adwaita-icon-theme
 adwaita-fonts noto-fonts mesa librsvg grim wl-clipboard xterm xorg-xeyes foot nautilus gnome-console
