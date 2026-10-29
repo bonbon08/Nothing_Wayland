@@ -65,6 +65,7 @@ tools/vm-test.sh key meta_l-spc            # Super + Leertaste
 tools/vm-test.sh key n o t h i n g ret     # tippen (Passwort der VM: nothing)
 tools/vm-test.sh click 960 1030            # Linksklick
 tools/vm-test.sh click 1100 300 right      # Rechtsklick
+tools/vm-test.sh drag 939 1026 1140 1020   # ziehen (z. B. Dock-Symbol umsortieren)
 tools/vm-test.sh ssh 'tail /tmp/session.log'
 
 # nach Code-Änderungen:
@@ -88,6 +89,8 @@ Die Screenshots in `docs/screenshots/` sind so entstanden (1920×1080, deutsches
 - [ ] `DISPLAY=:0 xterm` erscheint mit Nothing-Titelleiste; der rote Knopf schließt es
 - [ ] Super + 2 wechselt die Arbeitsfläche; ein Klick ins Dock holt das Fenster zurück
 - [ ] Esc schließt App-Suche und Kontrollzentrum
+- [ ] Dock-Symbol ziehen: Eine rote Linie zeigt die Stelle; nach vorn, hinten und in die Mitte klappt es
+- [ ] App aus der Suche ins Dock ziehen bzw. per Rechtsklick „Im Dock behalten“
 - [ ] Super + L sperrt; ein falsches Passwort wird abgelehnt, das richtige entsperrt
 - [ ] Kontrastfarbe und Hell/Dunkel in den Einstellungen wirken sofort
 - [ ] Shell beenden (`pkill -f '[n]othing_de.shell'`): Sie kommt genau einmal zurück
@@ -103,6 +106,9 @@ Die Screenshots in `docs/screenshots/` sind so entstanden (1920×1080, deutsches
   aufrufen.
 - **Escape in Overlays:** Eingabefelder schlucken Escape. Der Tasten-Controller von `layer.Overlay` läuft
   deshalb in der Capture-Phase.
+- **Keine Layout-Änderung beim Drag-Feedback:** Eine Lücke im Dock würde es verbreitern und neu
+  zentrieren, dann verrutscht die Mausposition relativ zum Dock. Deshalb gibt es eine Markierung per
+  `box-shadow`.
 - **Fenster ↔ App:** Das Dock ordnet Fenster über `app_id` (Wayland) bzw. die X11-Klasse den `.desktop`-Dateien
   zu, unter anderem über `StartupWMClass`. Eigene Apps sollten das setzen.
 - **Prozesse in Tests beenden:** `pkill -f "python3 -m nothing_de.shell"` trifft auch die eigene

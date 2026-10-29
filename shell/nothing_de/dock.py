@@ -1,7 +1,7 @@
 """The dock: pinned apps + running windows, grouped by application."""
 import math
 
-from gi.repository import Gdk, Gio, GLib, Gtk
+from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
 from . import layer
 from .apps import app_icon, launch_app
@@ -28,6 +28,14 @@ class DockItem(Gtk.Box):
         self.dot.set_halign(Gtk.Align.CENTER)
         self.append(self.btn)
         self.append(self.dot)
+        self.add_css_class("n-dock-slot")
+
+        if app is not None:
+            drag = Gtk.DragSource(actions=Gdk.DragAction.MOVE | Gdk.DragAction.COPY)
+            drag.set_content(Gdk.ContentProvider.new_for_value(app.get_id()))
+            drag.connect("drag-begin", self._drag_begin, size)
+            drag.connect("drag-end", lambda *_: self.set_opacity(1))
+            self.btn.add_controller(drag)
 
         right = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
         right.connect("pressed", lambda *_: self._menu())
@@ -35,6 +43,10 @@ class DockItem(Gtk.Box):
         middle = Gtk.GestureClick(button=Gdk.BUTTON_MIDDLE)
         middle.connect("pressed", lambda *_: launch_app(self.app))
         self.btn.add_controller(middle)
+
+    def _drag_begin(self, source, _drag, size):
+        source.set_icon(Gtk.WidgetPaintable.new(self.img), size // 2, size // 2)
+        self.set_opacity(0.3)
 
     def set_windows(self, windows, focused):
         self.windows = windows
@@ -46,6 +58,7 @@ class DockItem(Gtk.Box):
             self.dot.add_css_class("running")
 
     def _clicked(self, _b):
+        self.dock.shell.launcher.close_overlay()
         wm = self.dock.shell.wm
         if not self.windows:
             if launch_app(self.app):
@@ -89,6 +102,17 @@ class DockItem(Gtk.Box):
             sec.append("Aus dem Dock entfernen" if pinned else "Im Dock behalten", "dock.pin")
             act("pin", lambda *_: self.dock.toggle_pin(self.app))
         menu.append_section(None, sec)
+        if self.app and self.dock.is_pinned(self.app):
+            ids = self.dock.pinned_ids()
+            idx = ids.index(self.app.get_id())
+            sec = Gio.Menu()
+            if idx > 0:
+                sec.append("Nach links verschieben", "dock.left")
+                act("left", lambda *_: self.dock.move_pin(self.app.get_id(), idx - 1))
+            if idx < len(ids) - 1:
+                sec.append("Nach rechts verschieben", "dock.right")
+                act("right", lambda *_: self.dock.move_pin(self.app.get_id(), idx + 1))
+            menu.append_section(None, sec)
         if self.windows:
             sec = Gio.Menu()
             sec.append("Alle Fenster schließen" if len(self.windows) > 1 else "Beenden", "dock.quit")
@@ -104,10 +128,13 @@ class DockItem(Gtk.Box):
 
 
 class Dock(Gtk.ApplicationWindow):
+    MIN_ICON = 24
+
     def __init__(self, shell, monitor):
         super().__init__(application=shell.app)
         self.shell = shell
         self.cfg = shell.cfg
+        self.monitor = monitor
         layer.setup(self, layer="top", anchors=("bottom",), margins={"bottom": 10},
                     exclusive="auto", namespace="nothing-dock", monitor=monitor)
         self.add_css_class("n-root")
@@ -116,21 +143,93 @@ class Dock(Gtk.ApplicationWindow):
         self.set_child(self.box)
         self.items = {}
         self._layout_key = None
+        self._gap_item = None
+
+        drop = Gtk.DropTarget.new(GObject.TYPE_STRING, Gdk.DragAction.MOVE | Gdk.DragAction.COPY)
+        drop.connect("motion", self._drop_motion)
+        drop.connect("leave", lambda *_: self._show_gap(None))
+        drop.connect("drop", self._drop)
+        self.box.add_controller(drop)
+
         shell.wm.connect("state", lambda *_: self.refresh())
         self.cfg.connect("changed", lambda *_: self.refresh())
         shell.apps.listeners.append(self.refresh)
         self.refresh()
 
+    def pinned_ids(self):
+        return list(self.cfg.get("dock.pinned") or [])
+
     def is_pinned(self, app):
-        return app.get_id() in (self.cfg.get("dock.pinned") or [])
+        return app.get_id() in self.pinned_ids()
 
     def toggle_pin(self, app):
-        pinned = list(self.cfg.get("dock.pinned") or [])
+        pinned = self.pinned_ids()
         if app.get_id() in pinned:
             pinned.remove(app.get_id())
         else:
             pinned.append(app.get_id())
         self.cfg.set("dock.pinned", pinned)
+
+    def move_pin(self, desktop_id, index):
+        """Pin desktop_id at position index (moving it if it is pinned already)."""
+        pinned = self.pinned_ids()
+        if desktop_id in pinned:
+            old = pinned.index(desktop_id)
+            pinned.remove(desktop_id)
+            if old < index:
+                index -= 1
+        pinned.insert(max(0, min(index, len(pinned))), desktop_id)
+        self.cfg.set("dock.pinned", pinned)
+
+    # ------------------------------------------------------- drag & drop
+    def _pinned_items(self):
+        ids = self.pinned_ids()
+        return [self.items[k] for k in self._layout_key[1] if k in self.items and k in ids]
+
+    def _drop_index(self, x):
+        """Index in the pinned list for a drop at box coordinate x."""
+        items = self._pinned_items()
+        for i, item in enumerate(items):
+            ok, rect = item.compute_bounds(self.box)
+            if ok and x < rect.get_x() + rect.get_width() / 2:
+                return i, item
+        return len(items), None
+
+    def _show_gap(self, item, after=False):
+        """Accent marker where the drop would land (does not change the dock width,
+        so the pointer position stays stable while dragging)."""
+        for cls in ("drop-before", "drop-after"):
+            if self._gap_item is not None:
+                self._gap_item.remove_css_class(cls)
+        self._gap_item = item
+        if item is not None:
+            item.add_css_class("drop-after" if after else "drop-before")
+
+    def _drop_motion(self, _target, x, _y):
+        _i, item = self._drop_index(x)
+        if item is None:
+            items = self._pinned_items()
+            self._show_gap(items[-1] if items else None, after=True)
+        else:
+            self._show_gap(item)
+        return Gdk.DragAction.MOVE
+
+    def _drop(self, _target, value, x, _y):
+        self._show_gap(None)
+        if not isinstance(value, str) or self.shell.apps.get(value) is None:
+            return False
+        index, _item = self._drop_index(x)
+        self.move_pin(value, index)
+        return True
+
+    def _fit_size(self, wanted, count):
+        """Shrink icons so that `count` items fit on the monitor."""
+        width = self.monitor.get_geometry().width if self.monitor else 1920
+        available = width - 80              # screen margin + dock padding + separators
+        per_item = wanted + 14               # button padding + spacing
+        if count * per_item <= available:
+            return wanted
+        return max(self.MIN_ICON, int(available / count) - 14)
 
     def _launcher_button(self, size):
         btn = Gtk.Button()
@@ -171,7 +270,7 @@ class Dock(Gtk.ApplicationWindow):
 
     def refresh(self):
         st = self.shell.wm.state
-        size = int(self.cfg.get("dock.icon_size") or 48)
+        wanted = int(self.cfg.get("dock.icon_size") or 48)
         pinned_ids = self.cfg.get("dock.pinned") or []
         groups = {}    # key -> (app, [windows])
         order = []
@@ -191,6 +290,7 @@ class Dock(Gtk.ApplicationWindow):
                 running_order.append(key)
             groups[key][1].append(w)
 
+        size = self._fit_size(wanted, 1 + len(order) + len(running_order))
         layout_key = (size, tuple(order), tuple(running_order),
                       self.cfg.get("accent"))
         if layout_key != self._layout_key:
@@ -198,6 +298,7 @@ class Dock(Gtk.ApplicationWindow):
             while (c := self.box.get_first_child()) is not None:
                 self.box.remove(c)
             self.items = {}
+            self._gap_item = None
             self.box.append(self._launcher_button(size))
             sep = Gtk.Box()
             sep.add_css_class("n-dock-sep")

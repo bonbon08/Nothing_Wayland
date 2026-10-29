@@ -46,6 +46,7 @@ Eine einzige C-Datei auf Basis von wlroots 0.20 und dessen Szenengraph (`wlr_sce
 | `LYR_UNMANAGED` | X11-Override-Redirect-Fenster (Menüs, Tooltips) |
 | `LYR_FULLSCREEN` | Vollbildfenster, damit sie über Leiste und Dock liegen |
 | `LYR_OVERLAY` | layer-shell „overlay“: App-Suche, Kontrollzentrum, Benachrichtigungen |
+| `LYR_DRAG` | Symbol beim Drag & Drop; folgt dem Mauszeiger und ist von der Treffersuche ausgenommen |
 | `LYR_LOCK` | Sperrbildschirm (schwarzer Hintergrund plus Lock-Surfaces) |
 
 **Fenster** (`struct view`) sind entweder xdg-Toplevels oder XWayland-Fenster. `v->x`/`v->y` ist immer die
@@ -65,6 +66,10 @@ schließen. Bei aktivem Sperrbildschirm erhalten nur Lock-Surfaces Eingaben.
 **Prozesse:** Programme startet der Compositor über einen Double-Fork. `SIGCHLD` bleibt absichtlich auf dem
 Standardwert. Ein ignoriertes `SIGCHLD` würde vererbt und bricht dann z. B. Xwaylands Aufruf von `xkbcomp`.
 
+**Drag & Drop:** `request_start_drag` wird gegen die Seriennummer des Pointer-Grabs geprüft, danach
+übernimmt `wlr_seat_start_pointer_drag`. Unter Wayland läuft jedes Ziehen über den Compositor, auch
+innerhalb einer App, also auch das Umsortieren im Dock.
+
 **Weitere Protokolle:** Zwischenablage (data-device, primary-selection, wlr/ext-data-control), Viewporter,
 Presentation-Time, Fractional-Scale, Cursor-Shape, xdg-activation, screencopy, ext-image-copy-capture,
 export-dmabuf, gamma-control, idle-notify und idle-inhibit, xdg-output, Relative-Pointer.
@@ -79,11 +84,11 @@ export-dmabuf, gamma-control, idle-notify und idle-inhibit, xdg-output, Relative
 | `theme.py` | Erzeugt das CSS aus Palette und Kontrastfarbe und synchronisiert GNOMEs `color-scheme`/`accent-color` |
 | `layer.py` | Hilfen für gtk4-layer-shell, `Overlay` (Vollbild-Ebene mit schwebendem Panel) |
 | `bar.py` | Leiste oben |
-| `dock.py` | Dock |
+| `dock.py` | Dock: Gruppierung, Ziehen zum Umsortieren und Anheften, automatische Symbolgröße |
 | `desktop.py` | Hintergrund und Widget-Fläche (Verschieben, Rechtsklick-Menü) |
 | `widgets.py` | Die Widgets |
 | `dotmatrix.py` | Punktmatrix-Schrift (5×7) mit cairo |
-| `launcher.py` | App-Suche mit Rechner |
+| `launcher.py` | App-Suche mit Rechner; Kacheln lassen sich ins Dock ziehen oder per Rechtsklick anheften. Das Overlay lässt den Bereich des Docks frei |
 | `control.py` | Kontrollzentrum |
 | `notifications.py` | Benachrichtigungsdienst |
 | `lockscreen.py` | Sperrbildschirm über `Gtk4SessionLock`; das Passwort prüft `unix_chkpwd` |

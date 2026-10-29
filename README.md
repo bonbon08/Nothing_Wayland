@@ -10,6 +10,8 @@ unten ein Dock und dazwischen ein Schreibtisch mit Widgets. X11-Programme laufen
 | ![Fenster](docs/screenshots/windows.png) | ![Hell](docs/screenshots/light.png) |
 | **App-Suche** (Super + Leertaste) | **Kontrollzentrum** (Super + A) |
 | ![App-Suche](docs/screenshots/launcher.png) | ![Kontrollzentrum](docs/screenshots/control.png) |
+| **App aus der Suche ins Dock ziehen** | **Im Dock umsortieren** (rote Linie = Ablagestelle) |
+| ![Ziehen ins Dock](docs/screenshots/launcher-drag.png) | ![Dock umsortieren](docs/screenshots/dock-drag.png) |
 | **Einstellungen** | **Online-Konten** (Google, Microsoft, Nextcloud …) |
 | ![Einstellungen](docs/screenshots/settings-appearance.png) | ![Online-Konten](docs/screenshots/settings-accounts.png) |
 
@@ -21,7 +23,8 @@ Weitere Bilder: [Sperrbildschirm](docs/screenshots/lock.png) · [Rechtsklick-Men
 ## Funktionen
 
 - **Eigener Wayland-Compositor** (`nothing-wm`, C, wlroots 0.20) mit XWayland, virtuellen Arbeitsflächen,
-  Sperrbildschirm (ext-session-lock), Bildschirmfotos (screencopy) und Zwischenablage-Protokollen.
+  Drag & Drop zwischen Apps, Sperrbildschirm (ext-session-lock), Bildschirmfotos (screencopy) und
+  Zwischenablage-Protokollen.
 - **Design im Nothing-Stil:** Schwarz/Weiß, Punktmatrix-Ziffern (selbst gezeichnet, keine Schriftart nötig),
   runde Karten, Beschriftungen in Monospace-Großbuchstaben. Helles und dunkles Design.
 - **Wählbare Kontrastfarbe:** neun Vorgaben oder eine eigene Farbe. Sie gilt für Shell, X11-Titelleisten und
@@ -32,7 +35,11 @@ Weitere Bilder: [Sperrbildschirm](docs/screenshots/lock.png) · [Rechtsklick-Men
 - **Leiste:** Systemmenü, Name der aktiven App mit Fenstermenü, Punkte für die Arbeitsflächen, Netzwerk,
   Lautstärke, Akku, Uhr mit Kalender.
 - **Dock:** angeheftete und laufende Apps, nach App gruppiert, mit Punkt für laufende Apps und Kontrastfarbe für
-  die aktive.
+  die aktive. Anheften und Sortieren geht direkt, ohne Einstellungen:
+  - Symbole im Dock **per Ziehen umsortieren**; eine Linie in Kontrastfarbe zeigt die Ablagestelle
+  - Apps aus der **App-Suche ins Dock ziehen** oder dort per **Rechtsklick → „Im Dock behalten“** anheften
+  - laufende Apps per Rechtsklick anheften; „Nach links/rechts verschieben“ und „Aus dem Dock entfernen“
+  - bei vielen Apps werden die Symbole automatisch kleiner, damit alles auf den Bildschirm passt
 - **Kontrollzentrum:** WLAN, Bluetooth, Dunkelmodus, *Nicht stören*, Lautstärke, Helligkeit, Kontrastfarbe, Ein/Aus.
 - **Einstellungs-App:** Darstellung, Widgets, Dock und Leiste, Arbeitsflächen, Standard-Apps, Tastatur,
   Benutzer (AccountsService) und Online-Konten (GNOME Online Accounts).
