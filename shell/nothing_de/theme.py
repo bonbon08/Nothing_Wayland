@@ -151,8 +151,10 @@ flowboxchild:selected {{ background: transparent; }}
 .n-swatch {{ min-width: 26px; min-height: 26px; border-radius: 99px; padding: 0;
   border: 2px solid transparent; box-shadow: none; }}
 .n-swatch.selected {{ border-color: @n_fg; }}
-scale.n-slider trough {{ min-height: 30px; border-radius: 99px; background: @n_card; }}
-scale.n-slider highlight {{ border-radius: 99px; background: @n_fg; }}
+scale.n-slider trough {{ min-height: 30px; border-radius: 99px; background: @n_card;
+  border: none; box-shadow: none; outline: none; }}
+scale.n-slider highlight {{ border-radius: 99px; background: @n_fg; border: none;
+  box-shadow: none; outline: none; }}
 scale.n-slider slider {{ min-width: 0; min-height: 0; background: transparent; box-shadow: none; border: none; margin: 0; }}
 
 /* ---------- notifications ---------- */
@@ -164,6 +166,7 @@ scale.n-slider slider {{ min-width: 0; min-height: 0; background: transparent; b
 .n-lock {{ background: @n_bg; color: @n_fg; }}
 .n-lock entry {{ background: @n_card; border-radius: 999px; min-height: 46px; min-width: 280px;
   padding: 0 18px; border: 1px solid @n_border; color: @n_fg; }}
+.n-lock entry:focus-within {{ border-color: alpha(@n_fg, 0.35); outline: none; box-shadow: none; }}
 .n-lock entry.error {{ border-color: @n_accent; }}
 
 popover.n-menu > contents {{ background: @n_surface; color: @n_fg; border-radius: 18px;

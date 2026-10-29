@@ -9,3 +9,4 @@ Type=Application
 Categories=Settings;System;
 Keywords=Hintergrund;Farbe;Akzent;Widget;Dock;Benutzer;Konto;Google;Tastatur;
 StartupNotify=true
+StartupWMClass=eu.nothing_de.Settings
