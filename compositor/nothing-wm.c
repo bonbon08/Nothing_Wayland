@@ -861,6 +861,15 @@ static void ipc_handle(struct ipc_client *c, char *line) {
 		view_maximize(v, !v->maximized);
 	} else if (!strcmp(cmd, "fullscreen") && v) {
 		view_fullscreen(v, !v->fullscreen);
+	} else if (!strcmp(cmd, "geometry") && v && rest) {
+		int gx, gy, gw, gh;
+		if (sscanf(rest, "%d %d %d %d", &gx, &gy, &gw, &gh) == 4 && !v->fullscreen) {
+			if (v->maximized) {
+				view_maximize(v, false);
+			}
+			view_configure(v, gx, gy, gw, gh);
+			deco_update(v);
+		}
 	} else if (!strcmp(cmd, "ws") && a1) {
 		switch_workspace(s, atoi(a1) - 1);
 	} else if (!strcmp(cmd, "move") && v && rest) {

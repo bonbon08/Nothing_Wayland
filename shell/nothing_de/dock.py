@@ -210,6 +210,8 @@ class Dock(Gtk.ApplicationWindow):
                 self.box.append(sep2)
             for key in running_order:
                 self._add(key, groups[key][0], size)
+            # layer windows never shrink on their own; drop the old size
+            self.set_default_size(1, 1)
         focused = st.get("focused")
         for key, item in self.items.items():
             item.set_windows(groups.get(key, (None, []))[1], focused)
