@@ -8,6 +8,7 @@
 #   tools/vm-test.sh ssh [CMD]         shell / command in the VM (user "nothing", password "nothing")
 #   tools/vm-test.sh key KEY...        send keys through the QEMU monitor, e.g. meta_l-spc  esc  n o t h i n g ret
 #   tools/vm-test.sh click X Y [right] click at screen coordinates (usb-tablet)
+#   tools/vm-test.sh drag X1 Y1 X2 Y2  press at X1/Y1, move in steps, release at X2/Y2
 #   tools/vm-test.sh shot FILE.png     screenshot of the VM display
 #   tools/vm-test.sh stop              power off
 #
@@ -17,7 +18,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIR="${NOTHING_VM_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/nothing-vm}"
 IMAGE_URL="https://fastly.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
 PORT="${NOTHING_VM_SSH_PORT:-2222}"
-PACKAGES="wlroots0.20 xorg-xwayland gtk4 gtk4-layer-shell libadwaita python-gobject python-cairo
+PACKAGES="wlroots0.20 xorg-xwayland gtk4 gtk4-layer-shell libadwaita python-gobject python-cairo python-numpy
 meson ninja gcc pkgconf wayland-protocols gnome-online-accounts accountsservice polkit-gnome
 networkmanager pipewire wireplumber pipewire-pulse xdg-desktop-portal-gtk adwaita-icon-theme
 adwaita-fonts noto-fonts mesa librsvg grim wl-clipboard xterm xorg-xeyes foot nautilus gnome-console
@@ -115,6 +116,29 @@ ev([{"type": "abs", "data": {"axis": "x", "value": int(x) * 32767 // w}},
 time.sleep(.3)
 ev([{"type": "btn", "data": {"down": True, "button": button}}]); time.sleep(.1)
 ev([{"type": "btn", "data": {"down": False, "button": button}}])
+PY
+    ;;
+drag)
+    python3 - "$DIR/qmp.sock" "$(size)" "$2" "$3" "$4" "$5" <<'PY'
+import json, socket, sys, time
+sock, size, x1, y1, x2, y2 = sys.argv[1:]
+w, h = map(int, size.split("x"))
+x1, y1, x2, y2 = map(int, (x1, y1, x2, y2))
+s = socket.socket(socket.AF_UNIX); s.connect(sock); f = s.makefile("rw")
+f.readline(); f.write(json.dumps({"execute": "qmp_capabilities"}) + "\n"); f.flush(); f.readline()
+def ev(events):
+    f.write(json.dumps({"execute": "input-send-event", "arguments": {"events": events}}) + "\n")
+    f.flush(); f.readline()
+def move(x, y):
+    ev([{"type": "abs", "data": {"axis": "x", "value": x * 32767 // w}},
+        {"type": "abs", "data": {"axis": "y", "value": y * 32767 // h}}])
+move(x1, y1); time.sleep(.3)
+ev([{"type": "btn", "data": {"down": True, "button": "left"}}]); time.sleep(.2)
+steps = 25
+for i in range(1, steps + 1):
+    move(x1 + (x2 - x1) * i // steps, y1 + (y2 - y1) * i // steps); time.sleep(.04)
+time.sleep(.5)
+ev([{"type": "btn", "data": {"down": False, "button": "left"}}])
 PY
     ;;
 shot)

@@ -82,6 +82,7 @@ enum {
 	LYR_UNMANAGED,
 	LYR_FULLSCREEN,
 	LYR_OVERLAY,
+	LYR_DRAG,
 	LYR_LOCK,
 	LYR_COUNT,
 };
@@ -212,6 +213,10 @@ struct server {
 	uint32_t resize_edges;
 
 	struct layer *focused_layer;
+
+	/* drag and drop */
+	struct wlr_scene_tree *drag_icon;
+	struct wl_listener drag_destroy;
 	int cur_ws, n_ws;
 	uint32_t next_id;
 
@@ -234,7 +239,8 @@ struct server {
 		new_layer, xwayland_ready, new_xsurface, cursor_motion,
 		cursor_motion_abs, cursor_button, cursor_axis, cursor_frame,
 		request_cursor, request_set_selection, request_set_primary,
-		request_activate, request_set_shape, new_lock;
+		request_activate, request_set_shape, new_lock, request_start_drag,
+		start_drag;
 };
 
 static void focus_view(struct view *view);
@@ -1197,7 +1203,10 @@ static struct wlr_surface *desktop_at(struct server *s, double lx, double ly,
 		struct wlr_scene_node **hit_node) {
 	*view_out = NULL;
 	*layer_out = NULL;
+	/* the drag icon sits right under the cursor; never hit-test it */
+	wlr_scene_node_set_enabled(&s->layers[LYR_DRAG]->node, false);
 	struct wlr_scene_node *node = wlr_scene_node_at(&s->scene->tree.node, lx, ly, sx, sy);
+	wlr_scene_node_set_enabled(&s->layers[LYR_DRAG]->node, true);
 	if (hit_node) {
 		*hit_node = node;
 	}
@@ -1233,6 +1242,9 @@ static void reset_cursor_mode(struct server *s) {
 }
 
 static void process_motion(struct server *s, uint32_t time) {
+	if (s->drag_icon) {
+		wlr_scene_node_set_position(&s->drag_icon->node, s->cursor->x, s->cursor->y);
+	}
 	if (s->cursor_mode == CUR_MOVE && s->grabbed) {
 		struct view *v = s->grabbed;
 		if (v->maximized) {
@@ -1430,6 +1442,36 @@ static void request_set_shape(struct wl_listener *l, void *data) {
 	if (s->seat->pointer_state.focused_client == ev->seat_client) {
 		wlr_cursor_set_xcursor(s->cursor, s->xcursor_mgr, wlr_cursor_shape_v1_name(ev->shape));
 	}
+}
+
+static void seat_request_start_drag(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, request_start_drag);
+	struct wlr_seat_request_start_drag_event *ev = data;
+	if (wlr_seat_validate_pointer_grab_serial(s->seat, ev->origin, ev->serial)) {
+		wlr_seat_start_pointer_drag(s->seat, ev->drag, ev->serial);
+	} else {
+		wlr_data_source_destroy(ev->drag->source);
+	}
+}
+
+static void drag_destroy(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, drag_destroy);
+	wl_list_remove(&s->drag_destroy.link);
+	/* the scene drag icon tree goes away together with the icon */
+	s->drag_icon = NULL;
+	/* the surface under the cursor did not see the motion during the drag */
+	process_motion(s, 0);
+}
+
+static void seat_start_drag(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, start_drag);
+	struct wlr_drag *drag = data;
+	if (drag->icon) {
+		s->drag_icon = wlr_scene_drag_icon_create(s->layers[LYR_DRAG], drag->icon);
+		wlr_scene_node_set_position(&s->drag_icon->node, s->cursor->x, s->cursor->y);
+	}
+	s->drag_destroy.notify = drag_destroy;
+	wl_signal_add(&drag->events.destroy, &s->drag_destroy);
 }
 
 static void seat_request_set_selection(struct wl_listener *l, void *data) {
@@ -2462,6 +2504,10 @@ int main(int argc, char *argv[]) {
 	wl_signal_add(&s.seat->events.request_set_selection, &s.request_set_selection);
 	s.request_set_primary.notify = seat_request_set_primary;
 	wl_signal_add(&s.seat->events.request_set_primary_selection, &s.request_set_primary);
+	s.request_start_drag.notify = seat_request_start_drag;
+	wl_signal_add(&s.seat->events.request_start_drag, &s.request_start_drag);
+	s.start_drag.notify = seat_start_drag;
+	wl_signal_add(&s.seat->events.start_drag, &s.start_drag);
 
 	const char *socket = wl_display_add_socket_auto(s.display);
 	if (!socket) {

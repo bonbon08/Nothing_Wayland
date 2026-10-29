@@ -96,6 +96,10 @@ button.n-ws {{ padding: 4px 4px; min-height: 0; min-width: 0; }}
 .n-dock .n-run-dot {{ min-width: 4px; min-height: 4px; border-radius: 99px; background: transparent; }}
 .n-dock .n-run-dot.running {{ background: @n_fg; }}
 .n-dock .n-run-dot.focused {{ background: @n_accent; min-width: 12px; }}
+.n-dock-slot.drop-before {{ box-shadow: -5px 0 0 -2px @n_accent; }}
+.n-dock-slot.drop-after {{ box-shadow: 5px 0 0 -2px @n_accent; }}
+.n-icon {{ background: @n_card_hi; color: @n_fg; border-radius: 999px;
+  box-shadow: inset 0 0 0 1px alpha(@n_fg, 0.06); }}
 .n-dock-sep {{ min-width: 1px; background: @n_border; margin: 8px 6px; }}
 
 /* ---------- cards / widgets ---------- */

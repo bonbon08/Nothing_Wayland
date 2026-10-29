@@ -56,8 +56,10 @@ DEFAULTS = {
     "keyboard": {"layout": "de", "variant": "", "options": ""},
     "bar": {"clock_24h": True, "show_seconds": False, "show_date": True,
             "show_workspaces": True},
+    "icons": "nothing",              # nothing (monochrome) | original
     "dock": {
         "icon_size": 48,
+        "launcher": "left",          # left | right: position of the apps button
         "pinned": [
             "org.gnome.Nautilus.desktop",
             "firefox.desktop",

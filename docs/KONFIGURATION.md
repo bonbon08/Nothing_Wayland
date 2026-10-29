@@ -21,8 +21,10 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 | `bar.show_seconds` | bool | `false` | Sekunden in der Leiste |
 | `bar.show_date` | bool | `true` | Datum in der Leiste |
 | `bar.show_workspaces` | bool | `true` | Punkte für die Arbeitsflächen |
-| `dock.icon_size` | px | `48` | Symbolgröße im Dock |
-| `dock.pinned` | Liste von `.desktop`-IDs | Dateien, Firefox, Konsole, Texteditor, Einstellungen | Angeheftete Apps |
+| `icons` | `"nothing"` \| `"original"` | `"nothing"` | App-Symbole in Dock und App-Suche: einfarbig auf rundem Grund oder Original |
+| `dock.launcher` | `"left"` \| `"right"` | `"left"` | Position des Knopfs für die App-Suche im Dock |
+| `dock.icon_size` | px | `48` | Symbolgröße im Dock (Höchstwert; bei vielen Apps automatisch kleiner, mindestens 24) |
+| `dock.pinned` | Liste von `.desktop`-IDs | Dateien, Firefox, Konsole, Texteditor, Einstellungen | Angeheftete Apps in Dock-Reihenfolge (wird auch durch Ziehen im Dock geändert) |
 | `weather.city` / `.lat` / `.lon` | Text / Zahl | Berlin | Ort des Wetter-Widgets |
 | `widgets` | Liste | Uhr, Wetter, Akku, Kalender | Widgets auf dem Schreibtisch, siehe unten |
 | `notes` | Text | `""` | Inhalt des Notizen-Widgets |

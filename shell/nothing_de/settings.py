@@ -328,6 +328,20 @@ class DockPage:
         size.set_value(cfg.get("dock.icon_size") or 48)
         size.connect("notify::value", lambda r, _p: cfg.set("dock.icon_size", int(r.get_value())))
         g.add(size)
+        self.choices = []
+        for key, title, subtitle, choices in (
+                ("icons", "App-Symbole", "Im Dock und in der App-Suche",
+                 (("nothing", "Nothing (einfarbig)"), ("original", "Original"))),
+                ("dock.launcher", "App-Menü-Knopf", "Position im Dock",
+                 (("left", "Links"), ("right", "Rechts")))):
+            row = Adw.ComboRow(title=title, subtitle=subtitle,
+                               model=Gtk.StringList.new([label for _v, label in choices]))
+            values = [v for v, _label in choices]
+            row.set_selected(values.index(cfg.get(key)) if cfg.get(key) in values else 0)
+            row.connect("notify::selected", lambda r, _p, key=key, values=values:
+                        cfg.set(key, values[r.get_selected()]))
+            g.add(row)
+            self.choices.append((row, key, values))
         self.widget.add(g)
 
         self.pinned = group("Angeheftete Apps")
@@ -350,6 +364,9 @@ class DockPage:
         self.sync()
 
     def sync(self):
+        for row, key, values in self.choices:
+            if self.cfg.get(key) in values:
+                row.set_selected(values.index(self.cfg.get(key)))
         for r in self.rows:
             self.pinned.remove(r)
         self.rows = []

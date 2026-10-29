@@ -2,10 +2,11 @@
 import ast
 import operator
 
-from gi.repository import Gdk, GLib, Gtk, Pango
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import layer
-from .apps import app_icon, launch_app
+from .apps import launch_app
+from .icons import icon_widget
 
 _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
         ast.Div: operator.truediv, ast.Pow: operator.pow, ast.Mod: operator.mod,
@@ -78,6 +79,10 @@ class Launcher(layer.Overlay):
         GLib.idle_add(lambda: (self.populate(), False)[1])
 
     def open_overlay(self):
+        # leave the dock uncovered: it stays usable and accepts dropped apps
+        dock = self.shell.dock
+        if dock is not None and dock.get_visible():
+            layer.set_margin(self, "bottom", dock.get_height() + 10)
         self.entry.set_text("")
         self.populate()
         super().open_overlay()
@@ -94,17 +99,55 @@ class Launcher(layer.Overlay):
         for app in self.shell.apps.search(q)[:120]:
             tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             tile.add_css_class("n-app-tile")
-            tile.append(Gtk.Image(gicon=app_icon(app), pixel_size=52))
+            img = icon_widget(app, 52, self.shell.cfg)
+            tile.append(img)
             lbl = Gtk.Label(label=app.get_display_name(), ellipsize=Pango.EllipsizeMode.END,
                             max_width_chars=12, justify=Gtk.Justification.CENTER)
             tile.append(lbl)
             tile.set_tooltip_text(app.get_description() or app.get_display_name())
+            self._decorate_tile(tile, img, app)
             child = Gtk.FlowBoxChild(child=tile)
             child.app = app
             self.flow.append(child)
         first = self.flow.get_child_at_index(0)
         if first:
             self.flow.select_child(first)
+
+    def _decorate_tile(self, tile, img, app):
+        """Right-click menu and drag-to-dock for an app tile."""
+        drag = Gtk.DragSource(actions=Gdk.DragAction.COPY)
+        drag.set_content(Gdk.ContentProvider.new_for_value(app.get_id()))
+        drag.connect("drag-begin", self._drag_begin, img)
+        drag.connect("drag-end", self._drag_end)
+        tile.add_controller(drag)
+        right = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
+        right.connect("pressed", lambda *_: self._tile_menu(tile, app))
+        tile.add_controller(right)
+
+    def _drag_begin(self, source, _drag, img):
+        source.set_icon(Gtk.WidgetPaintable.new(img), 26, 26)
+
+    def _drag_end(self, _source, _drag, _delete):
+        self.close_overlay()
+
+    def _tile_menu(self, tile, app):
+        dock = self.shell.dock
+        pinned = dock is not None and dock.is_pinned(app)
+        group = Gio.SimpleActionGroup()
+        for name, cb in (("open", lambda: (launch_app(app), self.close_overlay())),
+                         ("pin", lambda: dock and dock.toggle_pin(app))):
+            a = Gio.SimpleAction.new(name, None)
+            a.connect("activate", lambda _a, _p, cb=cb: cb())
+            group.add_action(a)
+        tile.insert_action_group("tile", group)
+        menu = Gio.Menu()
+        menu.append("Öffnen", "tile.open")
+        menu.append("Aus dem Dock entfernen" if pinned else "Im Dock behalten", "tile.pin")
+        pop = Gtk.PopoverMenu.new_from_model(menu)
+        pop.add_css_class("n-menu")
+        pop.set_parent(tile)
+        pop.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        pop.popup()
 
     def _entry_key(self, _c, keyval, _code, _state):
         if keyval in (Gdk.KEY_Down, Gdk.KEY_Tab):
