@@ -16,13 +16,16 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 | `workspaces` | 1–10 | `4` | Anzahl der Arbeitsflächen |
 | `terminal` | Befehl | `""` | Terminal für Super + Eingabe; leer bedeutet automatisch (kgx, gnome-terminal, foot, …) |
 | `files` | Befehl | `""` | Dateimanager für Super + E; leer bedeutet Standard-App für Ordner |
-| `keyboard.layout` / `.variant` / `.options` | XKB | `"de"`, `""`, `""` | Tastaturbelegung |
+| `keyboard.layout` / `.variant` / `.options` | XKB | `"us"`, `""`, `""` | Tastaturbelegung |
+| `outputs.<NAME>.scale` | Zahl, 0.5–4 | wie erkannt | Skalierung des Bildschirms, `NAME` ist der Anschluss wie `DP-1` |
+| `outputs.<NAME>.enabled` | bool | `true` | Bildschirm verwenden; der letzte aktive lässt sich nicht abschalten |
 | `bar.clock_24h` | bool | `true` | 24-Stunden-Uhr |
 | `bar.show_seconds` | bool | `false` | Sekunden in der Leiste |
 | `bar.show_date` | bool | `true` | Datum in der Leiste |
 | `bar.show_workspaces` | bool | `true` | Punkte für die Arbeitsflächen |
 | `icons` | `"nothing"` \| `"original"` | `"nothing"` | App-Symbole in Dock und App-Suche: einfarbig auf rundem Grund oder Original |
 | `dock.launcher` | `"left"` \| `"right"` | `"left"` | Position des Knopfs für die App-Suche im Dock |
+| `dock.all_monitors` | bool | `false` | Dock auf jedem Bildschirm statt nur auf dem ersten |
 | `dock.icon_size` | px | `48` | Symbolgröße im Dock (Höchstwert; bei vielen Apps automatisch kleiner, mindestens 24) |
 | `dock.pinned` | Liste von `.desktop`-IDs | Dateien, Firefox, Konsole, Texteditor, Einstellungen | Angeheftete Apps in Dock-Reihenfolge (wird auch durch Ziehen im Dock geändert) |
 | `weather.city` / `.lat` / `.lon` | Text / Zahl | Berlin | Ort des Wetter-Widgets |
@@ -61,7 +64,7 @@ Klein = 172×172, breit = 360×172, groß = 360×360 Pixel.
 
 | Variable | Wirkung |
 |---|---|
-| `NOTHING_WM_SCALE` | Skalierung aller Ausgänge, z. B. `1.5` für HiDPI |
+| `NOTHING_WM_SCALE` | Startwert für die Skalierung aller Ausgänge, z. B. `1.5`; `outputs.<NAME>.scale` hat Vorrang |
 | `XKB_DEFAULT_LAYOUT` / `_VARIANT` / `_OPTIONS` | Tastaturbelegung beim Start des Compositors |
 | `XCURSOR_THEME` / `XCURSOR_SIZE` | Mauszeiger |
 | `NOTHING_WM_DEBUG=1` | Ausführliche Logs des Compositors |
@@ -85,4 +88,5 @@ Klein = 172×172, breit = 360×172, groß = 360×360 Pixel.
 
 Beim ersten Start der Shell in einer Sitzung startet sie Einträge aus `~/.config/autostart` und
 `/etc/xdg/autostart`, sofern sie für die Desktop-Umgebung `Nothing` gelten (`OnlyShowIn`/`NotShowIn`)
-und nicht `Hidden=true` gesetzt ist.
+und weder `Hidden=true` noch `X-GNOME-Autostart-enabled=false` gesetzt ist. Damit gelten auch die
+Autostart-Apps aus GNOME, die dort liegen; `X-GNOME-Autostart-Delay` wird beachtet.

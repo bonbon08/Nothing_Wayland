@@ -9,6 +9,8 @@ if [ -z "$NOTHING_NO_PRELOAD" ]; then
     for lib in /usr/lib/libgtk4-layer-shell.so /usr/lib64/libgtk4-layer-shell.so /usr/local/lib/libgtk4-layer-shell.so ${NOTHING_LAYER_SHELL_LIB:-}; do
         [ -e "$lib" ] && LAYER_LIB="$lib"
     done
+    # the shell takes this out of its environment again, see main() in shell.py
+    export NOTHING_ORIG_LD_PRELOAD="$LD_PRELOAD"
     [ -n "$LAYER_LIB" ] && export LD_PRELOAD="$LAYER_LIB${LD_PRELOAD:+:$LD_PRELOAD}"
 fi
 exec python3 -m nothing_de.shell "$@"

@@ -117,6 +117,21 @@ class DesktopWindow(Gtk.ApplicationWindow):
             self.picture.set_paintable(None)
 
     # ------------------------------------------------------------ widgets
+    def set_primary(self, primary):
+        """The widgets live on the first screen; that can change with the screens."""
+        if primary == self.primary:
+            return
+        self.primary = primary
+        self._clear_items()
+        self._rendered = None
+        self.reload()
+
+    def _clear_items(self):
+        for w, _spec in self.items:
+            w.teardown()
+            self.fixed.remove(w.get_parent())
+        self.items = []
+
     def reload(self):
         self._apply_wallpaper()
         if not self.primary:
@@ -126,10 +141,7 @@ class DesktopWindow(Gtk.ApplicationWindow):
         if key == self._rendered:
             return
         self._rendered = key
-        for w, _spec in self.items:
-            w.teardown()
-            self.fixed.remove(w.get_parent())
-        self.items = []
+        self._clear_items()
         for spec in specs:
             cls = WIDGET_TYPES.get(spec.get("type"))
             if cls:

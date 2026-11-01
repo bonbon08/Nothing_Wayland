@@ -58,10 +58,9 @@ def set_exclusive(win, value):
         LS.set_exclusive_zone(win, value)
 
 
-def set_margin(win, edge, value):
+def set_layer(win, name):
     if supported() and LS.is_layer_window(win):
-        LS.set_margin(win, {TOP: LS.Edge.TOP, BOTTOM: LS.Edge.BOTTOM,
-                            LEFT: LS.Edge.LEFT, RIGHT: LS.Edge.RIGHT}[edge], value)
+        LS.set_layer(win, {"top": LS.Layer.TOP, "overlay": LS.Layer.OVERLAY}[name])
 
 
 class Overlay(Gtk.ApplicationWindow):

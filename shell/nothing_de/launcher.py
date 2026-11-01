@@ -79,14 +79,19 @@ class Launcher(layer.Overlay):
         GLib.idle_add(lambda: (self.populate(), False)[1])
 
     def open_overlay(self):
-        # leave the dock uncovered: it stays usable and accepts dropped apps
-        dock = self.shell.dock
-        if dock is not None and dock.get_visible():
-            layer.set_margin(self, "bottom", dock.get_height() + 10)
         self.entry.set_text("")
         self.populate()
         super().open_overlay()
         self.entry.grab_focus()
+        # the dim covers the whole screen, but the docks stay usable above it
+        # and accept dropped apps; changing the layer puts them on top of it
+        for dock in self.shell.docks.values():
+            layer.set_layer(dock, "overlay")
+
+    def close_overlay(self):
+        super().close_overlay()
+        for dock in self.shell.docks.values():
+            layer.set_layer(dock, "top")
 
     def populate(self):
         q = self.entry.get_text()

@@ -32,7 +32,8 @@ class Shell:
         self.apps = AppIndex()
         self.wm = WindowManager()
         self.per_monitor = {}
-        self.dock = None
+        self.docks = {}
+        self._output_names = None
         self.launcher = Launcher(self)
         self.control = ControlCenter(self)
         self.notifications = Notifications(self)
@@ -40,7 +41,9 @@ class Shell:
 
         self.wm.connect("action", lambda _w, name: self.run_action(name))
         self.wm.connect("connected", lambda *_: self.push_wm_config())
+        self.wm.connect("state", self._on_wm_state)
         self.cfg.connect("changed", lambda *_: self.push_wm_config())
+        self.cfg.connect("changed", lambda *_: self.sync_monitors())
         if self.wm.available:
             self.push_wm_config()
 
@@ -65,12 +68,23 @@ class Shell:
             self.per_monitor[mon] = wins
             for w in wins:
                 w.present()
-        if self.dock is None or self.dock.get_root() is None:
-            if current:
-                self.dock = Dock(self, current[0])
-                self.dock.present()
+        for i, mon in enumerate(current):
+            self.per_monitor[mon][0].set_primary(i == 0)
+        wanted = current if self.cfg.get("dock.all_monitors") else current[:1]
+        for mon in list(self.docks):
+            if mon not in wanted:
+                self.docks.pop(mon).shutdown()
+        for mon in wanted:
+            if mon not in self.docks:
+                self.docks[mon] = Dock(self, mon)
+                self.docks[mon].present()
         if not layer.supported():
             print("nothing-shell: layer-shell not available — showing preview windows")
+
+    @property
+    def dock(self):
+        """Any dock: they all show the same pinned apps."""
+        return next(iter(self.docks.values()), None)
 
     def bar_net(self):
         for wins in self.per_monitor.values():
@@ -87,6 +101,21 @@ class Shell:
             self.wm.config("kb_layout", kb.get("layout"))
         self.wm.config("kb_variant", kb.get("variant") or "")
         self.wm.config("kb_options", kb.get("options") or "")
+        self.push_outputs()
+
+    def push_outputs(self):
+        for name, out in (self.cfg.get("outputs") or {}).items():
+            if "scale" in out:
+                self.wm.send("output", name, "scale", out["scale"])
+            if "enabled" in out:
+                self.wm.send("output", name, "enabled", 1 if out["enabled"] else 0)
+
+    def _on_wm_state(self, _wm, state):
+        # a screen was plugged in: its saved settings apply now
+        names = {o["name"] for o in state.get("outputs", [])}
+        if names != self._output_names:
+            self._output_names = names
+            self.push_outputs()
 
     # ----------------------------------------------------------- actions
     def run_action(self, name):
@@ -144,7 +173,10 @@ class Shell:
     # --------------------------------------------------------- autostart
     def autostart(self):
         """Run XDG autostart entries once per session."""
-        flag = os.path.join(GLib.get_user_runtime_dir(), f"nothing-autostart-{os.environ.get('WAYLAND_DISPLAY', '')}")
+        # keyed by compositor: the runtime dir outlives a logout while other
+        # sessions or user services are around, a display name would be reused
+        session = os.environ.get("NOTHING_WM_PID") or os.environ.get("WAYLAND_DISPLAY", "")
+        flag = os.path.join(GLib.get_user_runtime_dir(), f"nothing-autostart-{session}")
         if os.path.exists(flag) or not self.wm.available or os.environ.get("NOTHING_NO_AUTOSTART"):
             return
         open(flag, "w").close()
@@ -168,7 +200,15 @@ class Shell:
                     continue
                 if not info.get_show_in("Nothing"):
                     continue
-                launch_app(info)
+                # switched off in GNOME's "Startup Applications" / Tweaks
+                if info.has_key("X-GNOME-Autostart-enabled") and \
+                        not info.get_boolean("X-GNOME-Autostart-enabled"):
+                    continue
+                delay = info.get_string("X-GNOME-Autostart-Delay") or ""
+                if delay.isdigit() and int(delay) > 0:
+                    GLib.timeout_add_seconds(int(delay), lambda i=info: (launch_app(i), False)[1])
+                else:
+                    launch_app(info)
 
 
 class ShellApp(Gtk.Application):
@@ -184,6 +224,14 @@ class ShellApp(Gtk.Application):
 
 
 def main():
+    # bin/nothing-shell preloads gtk4-layer-shell for this process only. Apps
+    # must not inherit it: GTK 3 and Electron apps abort with GTK 4 loaded.
+    if "NOTHING_ORIG_LD_PRELOAD" in os.environ:
+        original = os.environ.pop("NOTHING_ORIG_LD_PRELOAD")
+        if original:
+            os.environ["LD_PRELOAD"] = original
+        else:
+            del os.environ["LD_PRELOAD"]
     app = ShellApp()
     return app.run(sys.argv)
 

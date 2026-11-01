@@ -112,7 +112,7 @@ class DockItem(Gtk.Box):
                 act("left", lambda *_: self.dock.move_pin(self.app.get_id(), idx - 1))
             if idx < len(ids) - 1:
                 sec.append("Nach rechts verschieben", "dock.right")
-                act("right", lambda *_: self.dock.move_pin(self.app.get_id(), idx + 1))
+                act("right", lambda *_: self.dock.move_pin(self.app.get_id(), idx + 2))
             menu.append_section(None, sec)
         if self.windows:
             sec = Gio.Menu()
@@ -152,10 +152,16 @@ class Dock(Gtk.ApplicationWindow):
         drop.connect("drop", self._drop)
         self.box.add_controller(drop)
 
-        shell.wm.connect("state", lambda *_: self.refresh())
-        self.cfg.connect("changed", lambda *_: self.refresh())
+        self._wm_handler = shell.wm.connect("state", lambda *_: self.refresh())
+        self._cfg_handler = self.cfg.connect("changed", lambda *_: self.refresh())
         shell.apps.listeners.append(self.refresh)
         self.refresh()
+
+    def shutdown(self):
+        self.shell.wm.disconnect(self._wm_handler)
+        self.cfg.disconnect(self._cfg_handler)
+        self.shell.apps.listeners.remove(self.refresh)
+        self.destroy()
 
     def pinned_ids(self):
         return list(self.cfg.get("dock.pinned") or [])
@@ -172,7 +178,8 @@ class Dock(Gtk.ApplicationWindow):
         self.cfg.set("dock.pinned", pinned)
 
     def move_pin(self, desktop_id, index):
-        """Pin desktop_id at position index (moving it if it is pinned already)."""
+        """Pin desktop_id before the item now at position index (moving it if it
+        is pinned already)."""
         pinned = self.pinned_ids()
         if desktop_id in pinned:
             old = pinned.index(desktop_id)

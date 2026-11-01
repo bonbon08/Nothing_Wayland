@@ -84,7 +84,7 @@ WLR_BACKENDS=wayland nothing-wm -s nothing-shell
 | Super + Ziehen links / rechts | Fenster verschieben / Größe ändern |
 | Super + D | Schreibtisch anzeigen |
 | Super + L | Sperren |
-| Alt + Tab | Fenster wechseln |
+| Alt + Tab | Fenster wechseln; Alt halten und Tab erneut drücken blättert weiter, Umschalt rückwärts |
 | Druck | Bildschirmfoto (`grim`) |
 | Super + Umschalt + Esc | Abmelden |
 
@@ -108,8 +108,8 @@ mangels Hardware in der VM nicht geprüft werden, ebenso wenig ein echter Google
 - Zum **Hinzufügen** von Google- oder Microsoft-Konten öffnet sich `gnome-control-center online-accounts`,
   weil GNOMEs Anmeldedialog nur dort steckt. Auflisten, Dienste schalten und Entfernen geht direkt in den
   Nothing-Einstellungen.
-- Es gibt keine Bildschirmverwaltung in der Oberfläche. Mehrere Monitore werden automatisch nebeneinander
-  gesetzt. HiDPI stellst du über `NOTHING_WM_SCALE` ein.
+- Mehrere Monitore werden automatisch nebeneinander gesetzt; die Anordnung lässt sich nicht ändern.
+  Skalieren und Abschalten geht unter Einstellungen → Bildschirme.
 - X11-Fenster bekommen eine schlichte Titelleiste mit drei Knöpfen und ohne Titeltext.
 - Fenster lassen sich nicht kacheln.
 
