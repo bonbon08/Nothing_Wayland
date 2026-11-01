@@ -2,10 +2,11 @@
 import datetime
 import math
 
-from gi.repository import Gdk, Gio, GLib, Gtk, Pango
+from gi.repository import Gio, GLib, Gtk, Pango
 
 from . import layer, system
 from .theme import hex_to_rgb
+from .tray import Tray
 from .widgets import read_battery
 
 WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
@@ -84,6 +85,8 @@ class TopBar(Gtk.ApplicationWindow):
         cal_pop.connect("show", lambda *_: cal.select_day(GLib.DateTime.new_now_local()))
         self.clock_btn.set_popover(cal_pop)
         right.append(self.clock_btn)
+        self.tray = Tray(shell)
+        right.append(self.tray)
         bar.set_end_widget(right)
 
         self.net = system.Network(self._update_net)

@@ -8,12 +8,11 @@ import threading
 import urllib.parse
 import urllib.request
 
-from gi.repository import Gdk, Gio, GLib, Gtk, Pango
+from gi.repository import Gio, GLib, Gtk, Pango
 
 from . import dotmatrix
 from .theme import hex_to_rgb
-
-SIZES = {"small": (172, 172), "wide": (360, 172), "large": (360, 360)}
+from .widget_sdk import DesktopWidget, load_user_widgets, register_widget
 
 WEEKDAYS = ["MONTAG", "DIENSTAG", "MITTWOCH", "DONNERSTAG", "FREITAG", "SAMSTAG", "SONNTAG"]
 MONTHS = ["JANUAR", "FEBRUAR", "MÄRZ", "APRIL", "MAI", "JUNI", "JULI", "AUGUST",
@@ -31,51 +30,7 @@ def accent_rgba(cfg):
     return (r, g, b, 1.0)
 
 
-class DesktopWidget(Gtk.Box):
-    TYPE = ""
-    NAME = ""
-    SIZE = "small"
-    REFRESH = 0  # seconds, 0 = none
-
-    def __init__(self, shell, spec):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        self.shell = shell
-        self.cfg = shell.cfg
-        self.spec = spec
-        self.add_css_class("n-card")
-        self.add_css_class("n-root")
-        self.set_overflow(Gtk.Overflow.HIDDEN)
-        w, h = SIZES[self.SIZE]
-        self.set_size_request(w, h)
-        self._timer = None
-        self._cfg_handler = self.cfg.connect("changed", lambda *_: self.on_config())
-        self.build()
-        self.refresh()
-        if self.REFRESH:
-            self._timer = GLib.timeout_add_seconds(self.REFRESH, self._tick)
-
-    def _tick(self):
-        self.refresh()
-        return True
-
-    def build(self):
-        pass
-
-    def refresh(self):
-        pass
-
-    def on_config(self):
-        self.refresh()
-
-    def teardown(self):
-        if self._timer:
-            GLib.source_remove(self._timer)
-            self._timer = None
-        if self._cfg_handler:
-            self.cfg.disconnect(self._cfg_handler)
-            self._cfg_handler = None
-
-
+@register_widget
 class ClockWidget(DesktopWidget):
     TYPE, NAME, SIZE, REFRESH = "clock", "Uhr (Dot-Matrix)", "wide", 1
 
@@ -118,6 +73,7 @@ class ClockWidget(DesktopWidget):
         self.date.set_label(f"{now.day:02d} {MONTHS[now.month - 1]} {now.year}")
 
 
+@register_widget
 class AnalogClockWidget(DesktopWidget):
     TYPE, NAME, SIZE, REFRESH = "analog", "Analoguhr", "small", 1
 
@@ -194,6 +150,7 @@ def fetch_json(url, callback):
     threading.Thread(target=work, daemon=True).start()
 
 
+@register_widget
 class WeatherWidget(DesktopWidget):
     TYPE, NAME, SIZE, REFRESH = "weather", "Wetter", "small", 900
 
@@ -274,6 +231,7 @@ def read_battery():
     return cap, status
 
 
+@register_widget
 class BatteryWidget(DesktopWidget):
     TYPE, NAME, SIZE, REFRESH = "battery", "Akku", "small", 20
 
@@ -316,6 +274,7 @@ class BatteryWidget(DesktopWidget):
         cr.show_text(label)
 
 
+@register_widget
 class SystemWidget(DesktopWidget):
     TYPE, NAME, SIZE, REFRESH = "system", "System", "small", 2
 
@@ -378,6 +337,7 @@ class SystemWidget(DesktopWidget):
             y += pitch * 2 + 10
 
 
+@register_widget
 class CalendarWidget(DesktopWidget):
     TYPE, NAME, SIZE, REFRESH = "calendar", "Kalender", "wide", 60
 
@@ -432,6 +392,7 @@ class CalendarWidget(DesktopWidget):
             self.grid.attach(lbl, i % 7, 1 + i // 7, 1, 1)
 
 
+@register_widget
 class NotesWidget(DesktopWidget):
     TYPE, NAME, SIZE = "notes", "Notizen", "large"
 
@@ -469,6 +430,7 @@ class NotesWidget(DesktopWidget):
         pass
 
 
+@register_widget
 class MediaWidget(DesktopWidget):
     TYPE, NAME, SIZE, REFRESH = "media", "Medien", "wide", 2
 
@@ -542,6 +504,7 @@ class MediaWidget(DesktopWidget):
                                     else "media-playback-start-symbolic")
 
 
+@register_widget
 class PhotoWidget(DesktopWidget):
     TYPE, NAME, SIZE = "photo", "Foto", "large"
 
@@ -566,6 +529,6 @@ class PhotoWidget(DesktopWidget):
             self.pic.set_filename(path)
 
 
-WIDGET_TYPES = {cls.TYPE: cls for cls in (
-    ClockWidget, AnalogClockWidget, WeatherWidget, BatteryWidget, SystemWidget,
-    CalendarWidget, NotesWidget, MediaWidget, PhotoWidget)}
+# Alle Widget-Typen registrieren sich automatisch über @register_widget in
+# widget_sdk.WIDGET_TYPES (dieser Name ist hier importiert).
+load_user_widgets()

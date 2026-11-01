@@ -11,7 +11,7 @@ SUDO="${SUDO-sudo}"
 DEPS="wlroots0.20 xorg-xwayland gtk4 gtk4-layer-shell libadwaita python python-gobject python-cairo python-numpy
 meson ninja wayland-protocols gnome-online-accounts accountsservice polkit-gnome networkmanager
 wireplumber bluez-utils xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-wlr
-gnome-keyring grim slurp wl-clipboard"
+gnome-keyring grim slurp wl-clipboard brightnessctl playerctl"
 
 if [ "$1" = "--deps" ]; then
     $SUDO pacman -S --needed $DEPS
