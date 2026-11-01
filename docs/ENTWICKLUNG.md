@@ -92,6 +92,11 @@ Die Screenshots in `docs/screenshots/` sind so entstanden (1920×1080, deutsches
 - [ ] Dock-Symbol ziehen: Eine rote Linie zeigt die Stelle; nach vorn, hinten und in die Mitte klappt es
 - [ ] App aus der Suche ins Dock ziehen bzw. per Rechtsklick „Im Dock behalten“
 - [ ] Einstellungen → Dock & Leiste: „App-Symbole“ und „App-Menü-Knopf“ wirken sofort
+- [ ] Alt + Tab springt zum vorherigen Fenster; Alt halten und Tab erneut drücken erreicht alle
+- [ ] Einstellungen → Bildschirme: Skalierung und „Aktiv“ wirken sofort, Fenster ziehen mit um
+- [ ] Mit zwei Bildschirmen: „Dock auf allen Bildschirmen“ wirkt sofort
+- [ ] App-Suche: Die Verdunklung reicht bis zum unteren Rand, das Dock bleibt hell und bedienbar
+- [ ] GTK-3- und Electron-Apps (z. B. Codium) starten aus Dock und App-Suche
 - [ ] Super + L sperrt; ein falsches Passwort wird abgelehnt, das richtige entsperrt
 - [ ] Kontrastfarbe und Hell/Dunkel in den Einstellungen wirken sofort
 - [ ] Shell beenden (`pkill -f '[n]othing_de.shell'`): Sie kommt genau einmal zurück
@@ -113,6 +118,8 @@ Die Screenshots in `docs/screenshots/` sind so entstanden (1920×1080, deutsches
 - **Nothing-Symbole:** `icons.py` rechnet jedes Symbol einmal pro Sitzung um, erst beim ersten Zeichnen.
   Neue Sonderfälle lassen sich am schnellsten mit einem Kontaktbogen prüfen: `glyph_for()` für eine Liste
   von Apps aufrufen und die Masken mit cairo nebeneinander in ein PNG zeichnen.
+- **`LD_PRELOAD`:** Die Shell braucht gtk4-layer-shell vorgeladen, ihre Kindprozesse dürfen es nicht erben.
+  Deshalb nimmt `main()` in `shell.py` die Variable wieder aus der Umgebung.
 - **Fenster ↔ App:** Das Dock ordnet Fenster über `app_id` (Wayland) bzw. die X11-Klasse den `.desktop`-Dateien
   zu, unter anderem über `StartupWMClass`. Eigene Apps sollten das setzen.
 - **Prozesse in Tests beenden:** `pkill -f "python3 -m nothing_de.shell"` trifft auch die eigene

@@ -17,6 +17,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from . import dotmatrix  # noqa: E402
 from .apps import app_icon  # noqa: E402
 from .config import ACCENTS, WALLPAPER_DIR, get_config  # noqa: E402
+from .ipc import WindowManager  # noqa: E402
 from .theme import ThemeManager, hex_to_rgb  # noqa: E402
 from .widgets import WIDGET_TYPES, fetch_json  # noqa: E402
 
@@ -24,6 +25,7 @@ PAGES = [
     ("appearance", "Darstellung", "applications-graphics-symbolic"),
     ("widgets", "Widgets", "view-grid-symbolic"),
     ("dock", "Dock & Leiste", "user-desktop-symbolic"),
+    ("displays", "Bildschirme", "video-display-symbolic"),
     ("workspaces", "Arbeitsflächen", "focus-windows-symbolic"),
     ("apps", "Standard-Apps", "starred-symbolic"),
     ("keyboard", "Tastatur", "input-keyboard-symbolic"),
@@ -102,7 +104,8 @@ class AppearancePage:
         g.add(row)
         self.widget.add(g)
 
-        g = group("Anzeige", "Für sehr hochauflösende Bildschirme, auf denen alles winzig wirkt.")
+        g = group("Anzeige", "Für sehr hochauflösende Bildschirme, auf denen alles winzig wirkt. "
+                       "Unter „Bildschirme“ lässt sich jeder einzeln einstellen, das hat Vorrang.")
         self._scales = [1.0, 1.25, 1.5, 1.75, 2.0]
         self.scale_row = Adw.ComboRow(
             title="Skalierung",
@@ -355,6 +358,12 @@ class DockPage:
                         cfg.set(key, values[r.get_selected()]))
             g.add(row)
             self.choices.append((row, key, values))
+        self.all_monitors = Adw.SwitchRow(title="Dock auf allen Bildschirmen",
+                                          subtitle="Sonst nur auf dem ersten Bildschirm")
+        self.all_monitors.set_active(bool(cfg.get("dock.all_monitors")))
+        self.all_monitors.connect("notify::active",
+                                  lambda r, _p: cfg.set("dock.all_monitors", r.get_active()))
+        g.add(self.all_monitors)
         self.widget.add(g)
 
         self.pinned = group("Angeheftete Apps")
@@ -380,6 +389,7 @@ class DockPage:
         for row, key, values in self.choices:
             if self.cfg.get(key) in values:
                 row.set_selected(values.index(self.cfg.get(key)))
+        self.all_monitors.set_active(bool(self.cfg.get("dock.all_monitors")))
         for r in self.rows:
             self.pinned.remove(r)
         self.rows = []
@@ -448,6 +458,63 @@ class AppChooser(Adw.Dialog):
 
 
 # ======================================================================
+SCALES = [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0]
+
+
+class DisplaysPage:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.widget = page("Bildschirme")
+        self.group = group("Angeschlossene Bildschirme",
+                           "Änderungen wirken sofort und gelten auch nach dem nächsten Anmelden.")
+        self.widget.add(self.group)
+        self.rows = []
+        self.switches = {}
+        self._names = None
+        self.wm = WindowManager()
+        self.wm.connect("state", lambda _w, state: self.sync(state))
+        if not self.wm.available:
+            self._replace_rows([Adw.ActionRow(title="Nur in der Nothing-Sitzung verfügbar")])
+
+    def _replace_rows(self, rows):
+        for r in self.rows:
+            self.group.remove(r)
+        self.rows = rows
+        for r in rows:
+            self.group.add(r)
+
+    def sync(self, state):
+        outputs = state.get("outputs", [])
+        names = [(o["name"], o["description"]) for o in outputs]
+        if names != self._names:
+            self._names = names
+            self.switches = {}
+            self._replace_rows([self._row(o) for o in outputs])
+        # the last active screen cannot be switched off
+        active = sum(o["enabled"] for o in outputs)
+        for o in outputs:
+            self.switches[o["name"]].set_sensitive(active > 1 or not o["enabled"])
+
+    def _row(self, out):
+        name = out["name"]
+        row = Adw.ExpanderRow(title=name, subtitle=out["description"], expanded=True)
+        row.add_prefix(Gtk.Image(icon_name="video-display-symbolic"))
+        on = Adw.SwitchRow(title="Aktiv")
+        on.set_active(out["enabled"])
+        on.connect("notify::active", lambda r, _p: self.cfg.set(f"outputs.{name}.enabled", r.get_active()))
+        row.add_row(on)
+        self.switches[name] = on
+        scales = sorted(set(SCALES) | {round(out["scale"], 3)})
+        scale = Adw.ComboRow(title="Skalierung",
+                             model=Gtk.StringList.new([f"{round(s * 100)} %" for s in scales]))
+        scale.set_selected(scales.index(round(out["scale"], 3)))
+        scale.connect("notify::selected", lambda r, _p: self.cfg.set(f"outputs.{name}.scale",
+                                                                     scales[r.get_selected()]))
+        row.add_row(scale)
+        return row
+
+
+# ======================================================================
 class WorkspacesPage:
     def __init__(self, cfg):
         self.widget = page("Arbeitsflächen")
@@ -474,7 +541,7 @@ class WorkspacesPage:
             ("Super + Q", "Fenster schließen"),
             ("Super + F / ↑ / ↓ / M", "Vollbild / Maximieren / Wiederherstellen / Minimieren"),
             ("Super + Ziehen (links / rechts)", "Fenster verschieben / Größe ändern"),
-            ("Alt + Tab", "Fenster wechseln"),
+            ("Alt + Tab / Alt + Umschalt + Tab", "Fenster wechseln (Alt halten: weiterblättern)"),
             ("Druck", "Bildschirmfoto"),
             ("Super + Umschalt + Esc", "Abmelden"),
         ):
@@ -569,7 +636,7 @@ class KeyboardPage:
         names = [n for _c, n in LAYOUTS]
         row = Adw.ComboRow(title="Belegung", model=Gtk.StringList.new(names))
         kb = cfg.get("keyboard") or {}
-        cur = kb.get("layout", "de") + (f"({kb['variant']})" if kb.get("variant") else "")
+        cur = kb.get("layout", "us") + (f"({kb['variant']})" if kb.get("variant") else "")
         for i, (code, _n) in enumerate(LAYOUTS):
             if code == cur:
                 row.set_selected(i)
@@ -940,6 +1007,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.split = split
 
         builders = {"appearance": AppearancePage, "widgets": WidgetsPage, "dock": DockPage,
+                    "displays": DisplaysPage,
                     "workspaces": WorkspacesPage, "apps": DefaultAppsPage, "keyboard": KeyboardPage,
                     "users": UsersPage, "accounts": AccountsPage, "about": AboutPage}
         self.pages = {}

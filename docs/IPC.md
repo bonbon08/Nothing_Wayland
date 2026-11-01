@@ -37,6 +37,8 @@ Fenster-IDs (`ID`) stammen aus `state`. Arbeitsflächen werden ab 1 gezählt.
 | `ws N` | Zu Arbeitsfläche N wechseln |
 | `move ID N` | Fenster auf Arbeitsfläche N verschieben |
 | `show_desktop` | Alle Fenster der aktuellen Arbeitsfläche minimieren |
+| `output NAME scale F` | Bildschirm skalieren (0.5–4) |
+| `output NAME enabled 0\|1` | Bildschirm ab- oder einschalten; der letzte aktive bleibt an |
 | `action NAME` | Aktion an alle Abonnenten senden (siehe unten) |
 | `config KEY WERT` | Laufzeit-Einstellung setzen (siehe unten) |
 | `exit` | Compositor beenden, also abmelden |
@@ -50,7 +52,7 @@ Fenster-IDs (`ID`) stammen aus `state`. Arbeitsflächen werden ab 1 gezählt.
 | `dark` | `1` oder `0` |
 | `kb_layout`, `kb_variant`, `kb_options` | XKB-Werte, z. B. `de`, `nodeadkeys`, `caps:escape` |
 | `cursor_theme` | Name des Cursor-Themes (setzt `XCURSOR_THEME` für danach gestartete Programme) |
-| `scale` | Skalierungsfaktor aller Ausgänge, z. B. `1.5`; wirkt sofort auf alle angeschlossenen Monitore |
+| `scale` | Skalierungsfaktor aller Ausgänge, z. B. `1.5`; wirkt sofort. Die Shell nutzt stattdessen `output NAME scale F` je Bildschirm |
 
 Die Shell sendet diese Werte beim Verbinden und bei jeder Änderung von `config.json`.
 
@@ -61,7 +63,9 @@ Die Shell sendet diese Werte beim Verbinden und bei jeder Änderung von `config.
 ```json
 {"event":"state","workspace":1,"workspaces":4,"focused":3,"locked":false,
  "windows":[{"id":3,"app_id":"org.gnome.Console","title":"~","ws":1,
-             "minimized":false,"maximized":false,"fullscreen":false,"x11":false,"pid":1234}]}
+             "minimized":false,"maximized":false,"fullscreen":false,"x11":false,"pid":1234}],
+ "outputs":[{"name":"DP-1","description":"Dell U2720Q","width":3840,"height":2160,
+             "scale":1.500,"enabled":true}]}
 ```
 
 Fenster sind nach ID sortiert. X11-Fenster mit `skip_taskbar` fehlen.

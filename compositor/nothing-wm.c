@@ -74,6 +74,7 @@
 #define TITLE_H 30
 #define BTN_SIZE 12
 #define MAX_TOUCH_POINTS 10
+#define MAX_CYCLE 64
 
 enum node_kind { NODE_VIEW = 1, NODE_LAYER, NODE_UNMANAGED };
 
@@ -102,6 +103,8 @@ struct output {
 	struct wlr_output *wlr_output;
 	struct wlr_scene_output *scene_output;
 	struct wlr_box full, usable;
+	bool enabled;
+	float scale;
 	struct wl_listener frame, request_state, destroy;
 };
 
@@ -124,6 +127,10 @@ struct view {
 	int ws;
 	bool mapped, minimized, maximized, fullscreen, placed;
 	struct wlr_box saved;
+	/* position relative to its output while the output layout changes */
+	struct output *anchor;
+	int anchor_x, anchor_y;
+	bool anchored;
 
 	struct wl_listener map, unmap, commit, destroy;
 	struct wl_listener request_move, request_resize, request_maximize,
@@ -232,6 +239,12 @@ struct server {
 
 	struct layer *focused_layer;
 
+	/* alt+tab: focus order at the start of the cycle */
+	bool cycling;
+	uint32_t cycle_ids[MAX_CYCLE];
+	bool cycle_minimized[MAX_CYCLE];
+	int cycle_n, cycle_pos;
+
 	/* drag and drop */
 	struct wlr_scene_tree *drag_icon;
 	struct wl_listener drag_destroy;
@@ -271,6 +284,9 @@ static void view_set_visible(struct view *view);
 static void view_maximize(struct view *view, bool on);
 static void view_fullscreen(struct view *view, bool on);
 static void update_output_boxes(struct server *s);
+static void output_set_enabled(struct output *out, bool on);
+static void output_set_scale(struct output *out, float scale);
+static void process_motion(struct server *s, uint32_t time);
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
@@ -328,8 +344,10 @@ static struct output *output_at(struct server *s, double x, double y) {
 			return out;
 		}
 	}
-	if (!wl_list_empty(&s->outputs)) {
-		return wl_container_of(s->outputs.next, out, link);
+	wl_list_for_each(out, &s->outputs, link) {
+		if (out->enabled) {
+			return out;
+		}
 	}
 	return NULL;
 }
@@ -666,6 +684,17 @@ static void focus_view(struct view *v) {
 	if (pv && pv != v) {
 		view_activate(pv, false);
 	}
+	/* only the focused window may cover the shell and the other windows */
+	struct view *o;
+	struct output *vo = view_output(v);
+	wl_list_for_each(o, &s->views, link) {
+		if (o != v && o->fullscreen && view_output(o) == vo) {
+			wlr_scene_node_reparent(&o->tree->node, s->ws_tree[o->ws]);
+		}
+	}
+	if (v->fullscreen) {
+		wlr_scene_node_reparent(&v->tree->node, s->layers[LYR_FULLSCREEN]);
+	}
 	wl_list_remove(&v->link);
 	wl_list_insert(&s->views, &v->link);
 	wlr_scene_node_raise_to_top(&v->tree->node);
@@ -772,6 +801,19 @@ static char *build_state(struct server *s) {
 				v->type == VIEW_X11 ? "true" : "false", (int)pid);
 			first = false;
 		}
+	}
+	fprintf(f, "],\"outputs\":[");
+	first = true;
+	struct output *out;
+	wl_list_for_each(out, &s->outputs, link) {
+		struct wlr_output *wo = out->wlr_output;
+		fprintf(f, "%s{\"name\":", first ? "" : ",");
+		json_escape(f, wo->name);
+		fprintf(f, ",\"description\":");
+		json_escape(f, wo->description ? wo->description : "");
+		fprintf(f, ",\"width\":%d,\"height\":%d,\"scale\":%.3f,\"enabled\":%s}",
+			wo->width, wo->height, out->scale, out->enabled ? "true" : "false");
+		first = false;
 	}
 	fprintf(f, "]}\n");
 	fclose(f);
@@ -936,18 +978,30 @@ static void ipc_handle(struct ipc_client *c, char *line) {
 				s->out_scale = sc;
 				struct output *o;
 				wl_list_for_each(o, &s->outputs, link) {
-					struct wlr_output_state st;
-					wlr_output_state_init(&st);
-					wlr_output_state_set_scale(&st, sc);
-					wlr_output_commit_state(o->wlr_output, &st);
-					wlr_output_state_finish(&st);
+					output_set_scale(o, sc);
 				}
-				update_output_boxes(s);
-				schedule_state(s);
 			}
 		}
 		wl_list_for_each(v, &s->views, link) {
 			deco_update(v);
+		}
+	} else if (!strcmp(cmd, "output") && a1 && rest) {
+		char key[16];
+		float val;
+		struct output *o, *out = NULL;
+		wl_list_for_each(o, &s->outputs, link) {
+			if (!strcmp(o->wlr_output->name, a1)) {
+				out = o;
+			}
+		}
+		/* outputs that are not connected right now are fine: the shell
+		 * sends the setting again as soon as they show up */
+		if (out && sscanf(rest, "%15s %f", key, &val) == 2) {
+			if (!strcmp(key, "scale")) {
+				output_set_scale(out, val);
+			} else if (!strcmp(key, "enabled")) {
+				output_set_enabled(out, val != 0);
+			}
 		}
 	} else if (!strcmp(cmd, "action") && a1) {
 		send_action(s, a1);
@@ -1026,6 +1080,64 @@ static bool ipc_init(struct server *s, const char *socket_name) {
 /* ------------------------------------------------------------------ */
 /* keyboard                                                           */
 
+/* Alt+Tab walks through the windows in most-recently-used order. The order
+ * only changes once Alt is released, so a single Alt+Tab always goes back to
+ * the previous window and holding Alt reaches all of them. */
+static void cycle_step(struct server *s, int dir) {
+	if (!s->cycling) {
+		struct view *v;
+		s->cycle_n = 0;
+		s->cycle_pos = 0;
+		wl_list_for_each(v, &s->views, link) {
+			if (v->mapped && v->ws == s->cur_ws && s->cycle_n < MAX_CYCLE) {
+				s->cycle_ids[s->cycle_n] = v->id;
+				s->cycle_minimized[s->cycle_n] = v->minimized;
+				s->cycle_n++;
+			}
+		}
+		if (s->cycle_n == 0) {
+			return;
+		}
+		s->cycling = true;
+	}
+	struct view *prev = view_by_id(s, s->cycle_ids[s->cycle_pos]);
+	bool prev_minimized = s->cycle_minimized[s->cycle_pos];
+	struct view *next = NULL;
+	for (int i = 0; i < s->cycle_n && !next; i++) {
+		s->cycle_pos = (s->cycle_pos + dir + s->cycle_n) % s->cycle_n;
+		next = view_by_id(s, s->cycle_ids[s->cycle_pos]);
+	}
+	if (!next) {
+		return;
+	}
+	if (prev && prev != next && prev_minimized) {
+		/* only passed by: minimized windows stay minimized */
+		prev->minimized = true;
+		if (prev->type == VIEW_X11) {
+			wlr_xwayland_surface_set_minimized(prev->xsurface, true);
+		}
+		view_set_visible(prev);
+	}
+	focus_view(next);
+}
+
+static void cycle_end(struct server *s) {
+	s->cycling = false;
+	struct view *target = view_by_id(s, s->cycle_ids[s->cycle_pos]);
+	/* undo the reordering of the windows that were only passed by */
+	for (int i = s->cycle_n - 1; i >= 0; i--) {
+		struct view *v = view_by_id(s, s->cycle_ids[i]);
+		if (v) {
+			wl_list_remove(&v->link);
+			wl_list_insert(&s->views, &v->link);
+			wlr_scene_node_raise_to_top(&v->tree->node);
+		}
+	}
+	if (target) {
+		focus_view(target);
+	}
+}
+
 static bool handle_keybinding(struct server *s, xkb_keysym_t sym, uint32_t mods) {
 	if (sym >= XKB_KEY_XF86Switch_VT_1 && sym <= XKB_KEY_XF86Switch_VT_12) {
 		if (s->session) {
@@ -1041,17 +1153,8 @@ static bool handle_keybinding(struct server *s, xkb_keysym_t sym, uint32_t mods)
 	bool shift = mods & WLR_MODIFIER_SHIFT;
 	bool ctrl = mods & WLR_MODIFIER_CTRL;
 
-	if ((mods & WLR_MODIFIER_ALT) && sym == XKB_KEY_Tab) {
-		/* focus the least recently used window -> cycles through all */
-		struct view *v, *last = NULL;
-		wl_list_for_each(v, &s->views, link) {
-			if (v->mapped && !v->minimized && v->ws == s->cur_ws) {
-				last = v;
-			}
-		}
-		if (last) {
-			focus_view(last);
-		}
+	if ((mods & WLR_MODIFIER_ALT) && (sym == XKB_KEY_Tab || sym == XKB_KEY_ISO_Left_Tab)) {
+		cycle_step(s, sym == XKB_KEY_Tab ? 1 : -1);
 		return true;
 	}
 	if (sym == XKB_KEY_Print) {
@@ -1152,6 +1255,9 @@ static void keyboard_modifiers(struct wl_listener *l, void *data) {
 	struct keyboard *k = wl_container_of(l, k, modifiers);
 	wlr_seat_set_keyboard(k->server->seat, k->wlr_keyboard);
 	wlr_seat_keyboard_notify_modifiers(k->server->seat, &k->wlr_keyboard->modifiers);
+	if (k->server->cycling && !(wlr_keyboard_get_modifiers(k->wlr_keyboard) & WLR_MODIFIER_ALT)) {
+		cycle_end(k->server);
+	}
 }
 
 static void keyboard_key(struct wl_listener *l, void *data) {
@@ -1895,7 +2001,7 @@ static void server_new_layer(struct wl_listener *l, void *data) {
 	if (ls->output) {
 		struct output *o;
 		wl_list_for_each(o, &s->outputs, link) {
-			if (o->wlr_output == ls->output) out = o;
+			if (o->wlr_output == ls->output && o->enabled) out = o;
 		}
 	}
 	if (!out) {
@@ -2534,6 +2640,7 @@ static void new_lock(struct wl_listener *l, void *data) {
 	}
 	s->lock = lock;
 	s->locked = true;
+	s->cycling = false;
 	reset_cursor_mode(s);
 	s->focused_layer = NULL;
 	wlr_seat_keyboard_notify_clear_focus(s->seat);
@@ -2562,6 +2669,9 @@ static void update_output_boxes(struct server *s) {
 	struct output *out;
 	int maxw = 0, maxh = 0;
 	wl_list_for_each(out, &s->outputs, link) {
+		if (!out->enabled) {
+			continue;
+		}
 		wlr_output_layout_get_box(s->output_layout, out->wlr_output, &out->full);
 		if (out->full.x + out->full.width > maxw) maxw = out->full.x + out->full.width;
 		if (out->full.y + out->full.height > maxh) maxh = out->full.y + out->full.height;
@@ -2570,8 +2680,162 @@ static void update_output_boxes(struct server *s) {
 	wlr_scene_rect_set_size(s->lock_bg, maxw, maxh);
 }
 
+static void views_remember_outputs(struct server *s) {
+	struct view *v;
+	wl_list_for_each(v, &s->views, link) {
+		struct output *out = v->mapped ? view_output(v) : NULL;
+		v->anchored = out != NULL;
+		v->anchor = out;
+		if (out) {
+			v->anchor_x = v->x - out->full.x;
+			v->anchor_y = v->y - out->full.y;
+			v->saved.x -= out->full.x;
+			v->saved.y -= out->full.y;
+		}
+	}
+}
+
+/* Put the windows back after the layout changed; those of an output that is
+ * gone move to the first remaining one. */
+static void views_restore_outputs(struct server *s) {
+	struct output *fallback = output_at(s, s->cursor->x, s->cursor->y);
+	struct view *v;
+	wl_list_for_each(v, &s->views, link) {
+		if (!v->anchored || !fallback) {
+			continue;
+		}
+		v->anchored = false;
+		struct output *out = v->anchor && v->anchor->enabled ? v->anchor : fallback;
+		v->saved.x += out->full.x;
+		v->saved.y += out->full.y;
+		int top = view_top_offset(v);
+		if (v->fullscreen) {
+			view_configure(v, out->full.x, out->full.y, out->full.width, out->full.height);
+		} else if (v->maximized) {
+			view_configure(v, out->usable.x, out->usable.y + top,
+				out->usable.width, out->usable.height - top);
+		} else {
+			struct wlr_box g = view_geometry(v);
+			int x = out->full.x + v->anchor_x;
+			int y = out->full.y + v->anchor_y;
+			if (x + g.width > out->usable.x + out->usable.width) {
+				x = out->usable.x + out->usable.width - g.width;
+			}
+			if (y + g.height > out->usable.y + out->usable.height) {
+				y = out->usable.y + out->usable.height - g.height;
+			}
+			if (x < out->usable.x) x = out->usable.x;
+			if (y < out->usable.y + top) y = out->usable.y + top;
+			view_move(v, x, y);
+		}
+	}
+}
+
+static void output_attach(struct output *out) {
+	struct server *s = out->server;
+	struct wlr_output_layout_output *lo =
+		wlr_output_layout_add_auto(s->output_layout, out->wlr_output);
+	out->scene_output = wlr_scene_output_create(s->scene, out->wlr_output);
+	wlr_scene_output_layout_add_output(s->scene_layout, lo, out->scene_output);
+	out->enabled = true;
+	wlr_output_layout_get_box(s->output_layout, out->wlr_output, &out->full);
+	out->usable = out->full;
+}
+
+/* the layer surfaces of a disabled or unplugged output are closed; the shell
+ * creates new ones when the output comes back */
+static void output_close_layers(struct output *out) {
+	struct layer *ly, *tmp;
+	wl_list_for_each_safe(ly, tmp, &out->server->layers_list, link) {
+		if (ly->output == out) {
+			ly->output = NULL;
+			wlr_layer_surface_v1_destroy(ly->surface);
+		}
+	}
+}
+
+static void output_power_on(struct output *out) {
+	struct wlr_output_state st;
+	wlr_output_state_init(&st);
+	wlr_output_state_set_enabled(&st, true);
+	struct wlr_output_mode *mode = wlr_output_preferred_mode(out->wlr_output);
+	if (mode) {
+		wlr_output_state_set_mode(&st, mode);
+	}
+	wlr_output_state_set_scale(&st, out->scale);
+	if (wlr_output_commit_state(out->wlr_output, &st)) {
+		output_attach(out);
+	} else {
+		wlr_log(WLR_ERROR, "cannot enable %s", out->wlr_output->name);
+	}
+	wlr_output_state_finish(&st);
+}
+
+static void output_set_enabled(struct output *out, bool on) {
+	struct server *s = out->server;
+	if (out->enabled == on) {
+		return;
+	}
+	if (!on) {
+		int active = 0;
+		struct output *o;
+		wl_list_for_each(o, &s->outputs, link) {
+			active += o->enabled;
+		}
+		if (active < 2) {
+			wlr_log(WLR_INFO, "not disabling %s: it is the last active output",
+				out->wlr_output->name);
+			return;
+		}
+	}
+	views_remember_outputs(s);
+	if (on) {
+		output_power_on(out);
+	} else {
+		output_close_layers(out);
+		out->enabled = false;
+		wlr_output_layout_remove(s->output_layout, out->wlr_output);
+		wlr_scene_output_destroy(out->scene_output);
+		out->scene_output = NULL;
+		struct wlr_output_state st;
+		wlr_output_state_init(&st);
+		wlr_output_state_set_enabled(&st, false);
+		wlr_output_commit_state(out->wlr_output, &st);
+		wlr_output_state_finish(&st);
+	}
+	update_output_boxes(s);
+	views_restore_outputs(s);
+	process_motion(s, 0);
+	schedule_state(s);
+}
+
+static void output_set_scale(struct output *out, float scale) {
+	struct server *s = out->server;
+	if (scale < 0.5f || scale > 4.0f || scale == out->scale) {
+		return;
+	}
+	out->scale = scale;
+	if (!out->enabled) {
+		schedule_state(s); /* applied when it is enabled again */
+		return;
+	}
+	views_remember_outputs(s);
+	struct wlr_output_state st;
+	wlr_output_state_init(&st);
+	wlr_output_state_set_scale(&st, scale);
+	wlr_output_commit_state(out->wlr_output, &st);
+	wlr_output_state_finish(&st);
+	update_output_boxes(s);
+	views_restore_outputs(s);
+	process_motion(s, 0);
+	schedule_state(s);
+}
+
 static void output_frame(struct wl_listener *l, void *data) {
 	struct output *out = wl_container_of(l, out, frame);
+	if (!out->enabled) {
+		return;
+	}
 	wlr_scene_output_commit(out->scene_output, NULL);
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
@@ -2581,6 +2845,9 @@ static void output_frame(struct wl_listener *l, void *data) {
 static void output_request_state(struct wl_listener *l, void *data) {
 	struct output *out = wl_container_of(l, out, request_state);
 	const struct wlr_output_event_request_state *ev = data;
+	if (!out->enabled) {
+		return;
+	}
 	wlr_output_commit_state(out->wlr_output, ev->state);
 	update_output_boxes(out->server);
 }
@@ -2588,19 +2855,32 @@ static void output_request_state(struct wl_listener *l, void *data) {
 static void output_destroy(struct wl_listener *l, void *data) {
 	struct output *out = wl_container_of(l, out, destroy);
 	struct server *s = out->server;
-	struct layer *ly, *tmp;
-	wl_list_for_each_safe(ly, tmp, &s->layers_list, link) {
-		if (ly->output == out) {
-			ly->output = NULL;
-			wlr_layer_surface_v1_destroy(ly->surface);
+	views_remember_outputs(s);
+	struct view *v;
+	wl_list_for_each(v, &s->views, link) {
+		if (v->anchor == out) {
+			v->anchor = NULL;
 		}
 	}
+	output_close_layers(out);
 	wl_list_remove(&out->frame.link);
 	wl_list_remove(&out->request_state.link);
 	wl_list_remove(&out->destroy.link);
 	wl_list_remove(&out->link);
 	free(out);
+	/* never end up without a picture: the last active output was unplugged */
+	struct output *o;
+	bool any = false;
+	wl_list_for_each(o, &s->outputs, link) {
+		any = any || o->enabled;
+	}
+	if (!any && !wl_list_empty(&s->outputs)) {
+		o = wl_container_of(s->outputs.next, o, link);
+		output_power_on(o);
+	}
 	update_output_boxes(s);
+	views_restore_outputs(s);
+	schedule_state(s);
 }
 
 static void server_new_output(struct wl_listener *l, void *data) {
@@ -2629,6 +2909,7 @@ static void server_new_output(struct wl_listener *l, void *data) {
 	struct output *out = calloc(1, sizeof(*out));
 	out->server = s;
 	out->wlr_output = wo;
+	out->scale = wo->scale;
 	out->frame.notify = output_frame;
 	wl_signal_add(&wo->events.frame, &out->frame);
 	out->request_state.notify = output_request_state;
@@ -2637,12 +2918,9 @@ static void server_new_output(struct wl_listener *l, void *data) {
 	wl_signal_add(&wo->events.destroy, &out->destroy);
 	wl_list_insert(s->outputs.prev, &out->link);
 
-	struct wlr_output_layout_output *lo = wlr_output_layout_add_auto(s->output_layout, wo);
-	out->scene_output = wlr_scene_output_create(s->scene, wo);
-	wlr_scene_output_layout_add_output(s->scene_layout, lo, out->scene_output);
-	wlr_output_layout_get_box(s->output_layout, wo, &out->full);
-	out->usable = out->full;
+	output_attach(out);
 	update_output_boxes(s);
+	schedule_state(s);
 
 	if (s->locked && s->lock) {
 		/* a locker must cover new outputs too; it gets notified through
