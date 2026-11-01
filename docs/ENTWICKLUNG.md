@@ -48,6 +48,22 @@ dbus-run-session -- build/compositor/nothing-wm -s 'bin/nothing-shell & sleep 8;
 `dbus-run-session` sorgt dafür, dass der Benachrichtigungsdienst der Shell nicht den der echten Sitzung
 übernimmt. `NOTHING_NO_GSETTINGS` verhindert, dass der Test deine GNOME-Farben ändert.
 
+## Automatische Tests
+
+```sh
+pip install pytest         # bzw. pacman -S python-pytest
+pytest                     # alles: Unit-, Statik- und Integrationstests (~25 s)
+pytest -m "not integration"  # nur Unit- und Statiktests (~2 s, ohne Compositor)
+```
+
+- `tests/test_config.py`, `test_theme.py`, `test_widget_sdk.py`: reine Logik (Konfiguration, Farben, Widget-SDK)
+- `tests/test_ipc.py`: IPC-Client gegen einen echten Unix-Socket (Ereignisse, Befehle, Wiederverbinden)
+- `tests/test_static.py`: alle Python-Dateien kompilieren und importieren, Shell-Skripte und `.desktop`-Dateien prüfen
+- `tests/test_compositor.py`: baut `nothing-wm`, startet ihn headless, prüft IPC, Arbeitsflächen, Beenden und dass die Shell läuft
+
+Die Tests schreiben nie in die eigene `~/.config/nothing-de`. Ein bestehendes Binary lässt sich mit
+`NOTHING_WM_BIN=/pfad/nothing-wm pytest` verwenden, dann entfällt der Build.
+
 ## Test in einer VM (empfohlen vor Releases)
 
 `tools/vm-test.sh` erzeugt eine Arch-Linux-VM mit QEMU/KVM, installiert den aktuellen Stand per

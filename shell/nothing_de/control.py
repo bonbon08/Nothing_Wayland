@@ -1,5 +1,5 @@
 """Control centre: quick toggles, sliders, accent picker, power buttons."""
-from gi.repository import GLib, Gtk
+from gi.repository import GLib, Gtk, Pango
 
 from . import layer, system
 from .config import ACCENTS
@@ -52,6 +52,27 @@ class ControlCenter(layer.Overlay):
         grid.attach(self.dark, 0, 1, 1, 1)
         grid.attach(self.dnd, 1, 1, 1, 1)
         self.panel.append(grid)
+
+        # Bluetooth-Geräte (Quick Connect)
+        self.bt_group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.bt_group.add_css_class("n-panel-section")
+        bt_title = Gtk.Label(label="Bluetooth-Geräte", xalign=0)
+        bt_title.add_css_class("n-caps")
+        bt_title.set_margin_top(4)
+        self.bt_group.append(bt_title)
+        self.bt_sub = Gtk.Label(label="Gekoppelte / entdeckte Geräte", xalign=0)
+        self.bt_sub.add_css_class("n-muted")
+        self.bt_sub.set_margin_bottom(4)
+        self.bt_group.append(self.bt_sub)
+        self.bt_devices = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.bt_devices.add_css_class("boxed-list")
+        self.bt_group.append(self.bt_devices)
+        self.bt_empty = Gtk.Label(label="Keine Geräte gefunden")
+        self.bt_empty.add_css_class("n-muted")
+        self.bt_empty.set_margin_top(6)
+        self.bt_group.append(self.bt_empty)
+        self.panel.append(self.bt_group)
+        self.bt_group.set_visible(False)
 
         self.vol = self._slider("audio-volume-high-symbolic", system.set_volume,
                                 lambda: system.toggle_mute())
@@ -131,8 +152,45 @@ class ControlCenter(layer.Overlay):
         def got(state):
             self.bt.set_sensitive(state is not None)
             self.bt.set_state(bool(state), "N/V" if state is None else None)
+            self.bt_group.set_visible(bool(state))
+            if state:
+                self._refresh_bt_devices()
         system.get_bluetooth(got)
         return False
+
+    def _refresh_bt_devices(self):
+        def got(devices):
+            while (c := self.bt_devices.get_first_child()) is not None:
+                self.bt_devices.remove(c)
+            if not devices:
+                self.bt_empty.set_visible(True)
+                return
+            self.bt_empty.set_visible(False)
+            for addr, name, connected in devices:
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                row.set_hexpand(True)
+                lbl = Gtk.Label(label=name or addr, xalign=0)
+                lbl.set_hexpand(True)
+                lbl.set_ellipsize(Pango.EllipsizeMode.END)
+                btn = Gtk.Button(label="Trennen" if connected else "Verbinden")
+                btn.add_css_class("flat")
+                btn.set_valign(Gtk.Align.CENTER)
+                action = self._disconnect_bt if connected else self._connect_bt
+                btn.connect("clicked", lambda _b, a=addr, act=action: act(a))
+                row.append(lbl)
+                row.append(btn)
+                self.bt_devices.append(row)
+        system.get_bluetooth_devices(got)
+
+    def _connect_bt(self, address):
+        def done():
+            GLib.timeout_add(800, self._refresh_bt_devices)
+        system.bluetooth_connect(address, done)
+
+    def _disconnect_bt(self, address):
+        def done():
+            GLib.timeout_add(800, self._refresh_bt_devices)
+        system.bluetooth_disconnect(address, done)
 
     def _refresh_volume(self):
         def got(v, muted):

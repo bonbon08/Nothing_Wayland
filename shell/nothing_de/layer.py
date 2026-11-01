@@ -46,18 +46,6 @@ def setup(win, *, layer="top", anchors=(), margins=None, exclusive=None,
     return True
 
 
-def set_keyboard(win, keyboard):
-    if supported() and LS.is_layer_window(win):
-        LS.set_keyboard_mode(win, {
-            "none": LS.KeyboardMode.NONE, "exclusive": LS.KeyboardMode.EXCLUSIVE,
-            "on_demand": LS.KeyboardMode.ON_DEMAND}[keyboard])
-
-
-def set_exclusive(win, value):
-    if supported() and LS.is_layer_window(win):
-        LS.set_exclusive_zone(win, value)
-
-
 def set_layer(win, name):
     if supported() and LS.is_layer_window(win):
         LS.set_layer(win, {"top": LS.Layer.TOP, "overlay": LS.Layer.OVERLAY}[name])
@@ -68,11 +56,11 @@ class Overlay(Gtk.ApplicationWindow):
     when clicking outside it or pressing Escape (launcher, control centre)."""
 
     def __init__(self, app, namespace, dim=False, halign=Gtk.Align.CENTER,
-                 valign=Gtk.Align.CENTER, margin_top=0, margin_end=0):
+                 valign=Gtk.Align.CENTER, margin_top=0, margin_end=0, keyboard="exclusive"):
         super().__init__(application=app)
         self.add_css_class("n-root")
         setup(self, layer="overlay", anchors=(TOP, BOTTOM, LEFT, RIGHT),
-              exclusive=-1, keyboard="exclusive", namespace=namespace)
+              exclusive=-1, keyboard=keyboard, namespace=namespace)
         if not supported():
             self.set_default_size(900, 640)
         self.scrim = Gtk.Box()

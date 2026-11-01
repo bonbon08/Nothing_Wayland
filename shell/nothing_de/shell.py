@@ -10,7 +10,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import layer  # noqa: E402
+from . import layer, system  # noqa: E402
+from .alt_tab import AltTab  # noqa: E402
 from .apps import AppIndex, launch_app, spawn  # noqa: E402
 from .bar import TopBar  # noqa: E402
 from .config import get_config, terminal_command  # noqa: E402
@@ -22,6 +23,8 @@ from .launcher import Launcher  # noqa: E402
 from .lockscreen import LockScreen  # noqa: E402
 from .notifications import Notifications  # noqa: E402
 from .theme import ThemeManager  # noqa: E402
+from .tray import StatusNotifierWatcher  # noqa: E402
+from .overview import Overview  # noqa: E402
 
 
 class Shell:
@@ -38,6 +41,10 @@ class Shell:
         self.control = ControlCenter(self)
         self.notifications = Notifications(self)
         self.lockscreen = LockScreen(self)
+        self.alt_tab = AltTab(self)
+        self.tray_watcher = StatusNotifierWatcher()
+        self.tray_watcher.start()
+        self.overview = Overview(self)
 
         self.wm.connect("action", lambda _w, name: self.run_action(name))
         self.wm.connect("connected", lambda *_: self.push_wm_config())
@@ -112,6 +119,10 @@ class Shell:
             self.wm.send("output", name, "scale", out.get("scale", default))
             if "enabled" in out:
                 self.wm.send("output", name, "enabled", 1 if out["enabled"] else 0)
+            pos = out.get("position")
+            if pos:
+                self.wm.send("output", name, "position", int(pos.get("x", 0)),
+                             int(pos.get("y", 0)))
 
     def _on_wm_state(self, _wm, state):
         # a screen was plugged in: its saved settings apply now
@@ -128,6 +139,16 @@ class Shell:
         elif name == "control":
             self.launcher.close_overlay()
             self.control.toggle()
+        elif name == "alt_tab":
+            self.launcher.close_overlay()
+            self.control.close_overlay()
+            self.alt_tab.cycle()
+        elif name == "alt_tab_end":
+            self.alt_tab.close_overlay()
+        elif name == "overview":
+            self.launcher.close_overlay()
+            self.control.close_overlay()
+            self.overview.toggle()
         elif name == "terminal":
             cmd = terminal_command(self.cfg)
             if cmd:
@@ -164,11 +185,19 @@ class Shell:
         folder = os.path.join(pics, "Bildschirmfotos")
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, datetime.datetime.now().strftime("Bildschirmfoto_%Y-%m-%d_%H-%M-%S.png"))
-        cmd = ["grim", path]
-        if shutil.which("wl-copy"):
-            cmd = ["sh", "-c", f'grim "{path}" && wl-copy < "{path}"']
-        spawn(cmd)
-        GLib.timeout_add(700, lambda: (self.notify("Bildschirmfoto gespeichert", path), False)[1])
+
+        def shoot(geometry):
+            cmd = ["grim"] + (["-g", geometry] if geometry else []) + [path]
+            if shutil.which("wl-copy"):
+                cmd = ["sh", "-c", '"$@" && wl-copy < "$0"', path] + cmd
+            spawn(cmd)
+            GLib.timeout_add(700, lambda: (self.notify("Bildschirmfoto gespeichert", path), False)[1])
+
+        if shutil.which("slurp"):
+            # empty when the selection was cancelled with Escape
+            system.run_async(["slurp"], lambda out: out and out.strip() and shoot(out.strip()))
+        else:
+            shoot(None)
 
     def notify(self, summary, body=""):
         self.notifications.notify(summary, body)

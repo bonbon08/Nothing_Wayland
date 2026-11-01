@@ -120,11 +120,6 @@ class DotLabel(Gtk.DrawingArea):
             self._update_size()
             self.queue_draw()
 
-    def set_pitch(self, pitch):
-        self.pitch = pitch
-        self._update_size()
-        self.queue_draw()
-
     def set_accent(self, rgba_tuple_):
         self.accent = rgba_tuple_
         self.queue_draw()

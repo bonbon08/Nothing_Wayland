@@ -39,6 +39,7 @@ Fenster-IDs (`ID`) stammen aus `state`. Arbeitsflächen werden ab 1 gezählt.
 | `show_desktop` | Alle Fenster der aktuellen Arbeitsfläche minimieren |
 | `output NAME scale F` | Bildschirm skalieren (0.5–4) |
 | `output NAME enabled 0\|1` | Bildschirm ab- oder einschalten; der letzte aktive bleibt an |
+| `output NAME position X Y` | Bildschirm im Layout anordnen (logische Pixel) |
 | `action NAME` | Aktion an alle Abonnenten senden (siehe unten) |
 | `config KEY WERT` | Laufzeit-Einstellung setzen (siehe unten) |
 | `exit` | Compositor beenden, also abmelden |
@@ -78,7 +79,8 @@ Fenster von höchstens 1 px Kantenlänge.
 {"event":"action","name":"launcher"}
 ```
 
-Bekannte Namen: `launcher`, `control`, `terminal`, `files`, `settings`, `lock`, `screenshot`.
+Bekannte Namen: `launcher`, `control`, `terminal`, `files`, `settings`, `lock`, `screenshot`, `overview`
+sowie `alt_tab` und `alt_tab_end` (Beginn/Schritt und Ende des Fensterwechsels).
 
 ## Beispiel: eigene Zeile für eine Statusleiste
 

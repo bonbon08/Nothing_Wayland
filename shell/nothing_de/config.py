@@ -81,6 +81,7 @@ DEFAULTS = {
     "notes": "",
     "photo": "",
     "dnd": False,
+    "desktop": {"icons": False},
 }
 
 

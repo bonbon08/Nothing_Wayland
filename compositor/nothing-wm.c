@@ -115,6 +115,9 @@ struct output {
 	struct wlr_box full, usable;
 	bool enabled;
 	float scale;
+	/* set by the shell, otherwise the outputs are lined up automatically */
+	bool has_position;
+	int pos_x, pos_y;
 	struct wl_listener frame, request_state, destroy;
 };
 
@@ -254,6 +257,7 @@ struct server {
 	uint32_t resize_edges;
 	struct wlr_scene_rect *snap_rect;
 	enum tile snap_tile;
+	bool in_hot_corner;
 
 	struct wl_event_source *dock_idle, *dock_timer;
 
@@ -310,6 +314,7 @@ static void process_motion(struct server *s, uint32_t time);
 static void schedule_dock(struct server *s);
 static void dock_update(struct server *s);
 static void dock_touch(struct server *s, double lx, double ly, struct layer *hit);
+static void output_set_position(struct output *out, int x, int y);
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
@@ -809,9 +814,15 @@ static void view_activate(struct view *v, bool on) {
 	}
 }
 
+/* X11 helpers like a desktop pet ask to never get the keyboard */
+static bool view_wants_focus(struct view *v) {
+	return v->type != VIEW_X11 || wlr_xwayland_surface_icccm_input_model(v->xsurface) !=
+		WLR_ICCCM_INPUT_MODEL_NONE;
+}
+
 static void focus_view(struct view *v) {
 	struct server *s = v->server;
-	if (s->locked || !v->mapped) {
+	if (s->locked || !v->mapped || !view_wants_focus(v)) {
 		return;
 	}
 	if (v->ws != s->cur_ws) {
@@ -859,7 +870,7 @@ static void focus_view(struct view *v) {
 static struct view *top_view(struct server *s) {
 	struct view *v;
 	wl_list_for_each(v, &s->views, link) {
-		if (v->mapped && !v->minimized && v->ws == s->cur_ws) {
+		if (v->mapped && !v->minimized && v->ws == s->cur_ws && view_wants_focus(v)) {
 			return v;
 		}
 	}
@@ -953,12 +964,14 @@ static char *build_state(struct server *s) {
 	struct output *out;
 	wl_list_for_each(out, &s->outputs, link) {
 		struct wlr_output *wo = out->wlr_output;
+		struct wlr_box box;
 		fprintf(f, "%s{\"name\":", first ? "" : ",");
 		json_escape(f, wo->name);
 		fprintf(f, ",\"description\":");
 		json_escape(f, wo->description ? wo->description : "");
-		fprintf(f, ",\"width\":%d,\"height\":%d,\"scale\":%.3f,\"enabled\":%s}",
-			wo->width, wo->height, out->scale, out->enabled ? "true" : "false");
+		wlr_output_layout_get_box(s->output_layout, wo, &box);
+		fprintf(f, ",\"x\":%d,\"y\":%d,\"width\":%d,\"height\":%d,\"scale\":%.3f,\"enabled\":%s}",
+			box.x, box.y, wo->width, wo->height, out->scale, out->enabled ? "true" : "false");
 		first = false;
 	}
 	fprintf(f, "]}\n");
@@ -1134,7 +1147,6 @@ static void ipc_handle(struct ipc_client *c, char *line) {
 		}
 	} else if (!strcmp(cmd, "output") && a1 && rest) {
 		char key[16];
-		float val;
 		struct output *o, *out = NULL;
 		wl_list_for_each(o, &s->outputs, link) {
 			if (!strcmp(o->wlr_output->name, a1)) {
@@ -1143,11 +1155,22 @@ static void ipc_handle(struct ipc_client *c, char *line) {
 		}
 		/* outputs that are not connected right now are fine: the shell
 		 * sends the setting again as soon as they show up */
-		if (out && sscanf(rest, "%15s %f", key, &val) == 2) {
+		if (out && sscanf(rest, "%15s", key) == 1) {
 			if (!strcmp(key, "scale")) {
-				output_set_scale(out, val);
+				float val;
+				if (sscanf(rest + strlen(key), " %f", &val) == 1) {
+					output_set_scale(out, val);
+				}
 			} else if (!strcmp(key, "enabled")) {
-				output_set_enabled(out, val != 0);
+				int val;
+				if (sscanf(rest + strlen(key), " %d", &val) == 1) {
+					output_set_enabled(out, val != 0);
+				}
+			} else if (!strcmp(key, "position")) {
+				int x, y;
+				if (sscanf(rest + strlen(key), " %d %d", &x, &y) == 2) {
+					output_set_position(out, x, y);
+				}
 			}
 		}
 	} else if (!strcmp(cmd, "action") && a1) {
@@ -1209,7 +1232,12 @@ static bool ipc_init(struct server *s, const char *socket_name) {
 	if (!rt) {
 		return false;
 	}
-	snprintf(s->ipc_path, sizeof(s->ipc_path), "%s/nothing-wm.%s.sock", rt, socket_name);
+	int n = snprintf(s->ipc_path, sizeof(s->ipc_path), "%s/nothing-wm.%s.sock", rt, socket_name);
+	if (n < 0 || (size_t)n >= sizeof(s->ipc_path)) {
+		/* sun_path is limited to 108 bytes; a longer path would bind a truncated name */
+		wlr_log(WLR_ERROR, "IPC socket path too long, XDG_RUNTIME_DIR=%s", rt);
+		return false;
+	}
 	unlink(s->ipc_path);
 	s->ipc_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 	struct sockaddr_un addr = {.sun_family = AF_UNIX};
@@ -1236,7 +1264,7 @@ static void cycle_step(struct server *s, int dir) {
 		s->cycle_n = 0;
 		s->cycle_pos = 0;
 		wl_list_for_each(v, &s->views, link) {
-			if (v->mapped && v->ws == s->cur_ws && s->cycle_n < MAX_CYCLE) {
+			if (v->mapped && v->ws == s->cur_ws && view_wants_focus(v) && s->cycle_n < MAX_CYCLE) {
 				s->cycle_ids[s->cycle_n] = v->id;
 				s->cycle_minimized[s->cycle_n] = v->minimized;
 				s->cycle_n++;
@@ -1283,6 +1311,7 @@ static void cycle_end(struct server *s) {
 	if (target) {
 		focus_view(target);
 	}
+	send_action(s, "alt_tab_end");
 }
 
 static bool handle_keybinding(struct server *s, xkb_keysym_t sym, uint32_t mods) {
@@ -1302,10 +1331,52 @@ static bool handle_keybinding(struct server *s, xkb_keysym_t sym, uint32_t mods)
 
 	if ((mods & WLR_MODIFIER_ALT) && (sym == XKB_KEY_Tab || sym == XKB_KEY_ISO_Left_Tab)) {
 		cycle_step(s, sym == XKB_KEY_Tab ? 1 : -1);
+		send_action(s, "alt_tab");
 		return true;
 	}
 	if (sym == XKB_KEY_Print) {
 		send_action(s, "screenshot");
+		return true;
+	}
+	/* media / volume / brightness keys work without the Super modifier */
+	if (sym == XKB_KEY_XF86AudioRaiseVolume) {
+		spawn("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+ || pactl set-sink-volume @DEFAULT_SINK@ +5%");
+		return true;
+	}
+	if (sym == XKB_KEY_XF86AudioLowerVolume) {
+		spawn("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- || pactl set-sink-volume @DEFAULT_SINK@ -5%");
+		return true;
+	}
+	if (sym == XKB_KEY_XF86AudioMute) {
+		spawn("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle || pactl set-sink-mute @DEFAULT_SINK@ toggle");
+		return true;
+	}
+	if (sym == XKB_KEY_XF86AudioMicMute) {
+		spawn("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle || pactl set-source-mute @DEFAULT_SOURCE@ toggle");
+		return true;
+	}
+	if (sym == XKB_KEY_XF86MonBrightnessUp) {
+		spawn("brightnessctl set 5%+");
+		return true;
+	}
+	if (sym == XKB_KEY_XF86MonBrightnessDown) {
+		spawn("brightnessctl set 5%-");
+		return true;
+	}
+	if (sym == XKB_KEY_XF86AudioPlay || sym == XKB_KEY_XF86AudioPause) {
+		spawn("playerctl play-pause");
+		return true;
+	}
+	if (sym == XKB_KEY_XF86AudioNext) {
+		spawn("playerctl next");
+		return true;
+	}
+	if (sym == XKB_KEY_XF86AudioPrev) {
+		spawn("playerctl previous");
+		return true;
+	}
+	if (sym == XKB_KEY_XF86AudioStop) {
+		spawn("playerctl stop");
 		return true;
 	}
 	if (!super) {
@@ -1382,6 +1453,9 @@ static bool handle_keybinding(struct server *s, xkb_keysym_t sym, uint32_t mods)
 		}
 		return ctrl || shift;
 	}
+	case XKB_KEY_w:
+		send_action(s, "overview");
+		return true;
 	case XKB_KEY_E:
 		if (shift) {
 			wl_display_terminate(s->display);
@@ -1613,6 +1687,19 @@ static void snap_apply(struct server *s, struct view *v, enum tile tile) {
 	schedule_state(s);
 }
 
+/* like GNOME: pushing the cursor into the top left corner opens the overview,
+ * once per visit. Not from the corner of a game or video. */
+static void hot_corner_update(struct server *s) {
+	struct output *out = output_at(s, s->cursor->x, s->cursor->y);
+	bool inside = out && s->cursor->x < out->full.x + 1 && s->cursor->y < out->full.y + 1;
+	struct view *focused = view_from_surface(s, s->seat->keyboard_state.focused_surface);
+	if (inside && !s->in_hot_corner && !s->locked && !s->drag_icon &&
+			!(focused && focused->fullscreen)) {
+		send_action(s, "overview");
+	}
+	s->in_hot_corner = inside;
+}
+
 static void process_motion(struct server *s, uint32_t time) {
 	if (s->drag_icon) {
 		wlr_scene_node_set_position(&s->drag_icon->node, s->cursor->x, s->cursor->y);
@@ -1665,6 +1752,7 @@ static void process_motion(struct server *s, uint32_t time) {
 		view_configure(v, left, top, right - left, bottom - top);
 		return;
 	}
+	hot_corner_update(s);
 
 	double sx, sy;
 	struct view *v;
@@ -2159,6 +2247,10 @@ static bool dock_wanted(struct layer *ly) {
 	struct view *v;
 	wl_list_for_each(v, &s->views, link) {
 		if (!v->mapped || v->minimized || v->ws != s->cur_ws) {
+			continue;
+		}
+		/* a helper like a desktop pet may sit on the dock */
+		if (!view_in_taskbar(v) || (v->type == VIEW_X11 && v->xsurface->skip_taskbar)) {
 			continue;
 		}
 		struct wlr_box g = view_geometry(v);
@@ -3021,7 +3113,10 @@ static void new_lock(struct wl_listener *l, void *data) {
 	}
 	s->lock = lock;
 	s->locked = true;
-	s->cycling = false;
+	if (s->cycling) {
+		s->cycling = false;
+		send_action(s, "alt_tab_end");
+	}
 	reset_cursor_mode(s);
 	s->focused_layer = NULL;
 	wlr_seat_keyboard_notify_clear_focus(s->seat);
@@ -3116,7 +3211,8 @@ static void views_restore_outputs(struct server *s) {
 
 static void output_attach(struct output *out) {
 	struct server *s = out->server;
-	struct wlr_output_layout_output *lo =
+	struct wlr_output_layout_output *lo = out->has_position ?
+		wlr_output_layout_add(s->output_layout, out->wlr_output, out->pos_x, out->pos_y) :
 		wlr_output_layout_add_auto(s->output_layout, out->wlr_output);
 	out->scene_output = wlr_scene_output_create(s->scene, out->wlr_output);
 	wlr_scene_output_layout_add_output(s->scene_layout, lo, out->scene_output);
@@ -3186,6 +3282,25 @@ static void output_set_enabled(struct output *out, bool on) {
 		wlr_output_commit_state(out->wlr_output, &st);
 		wlr_output_state_finish(&st);
 	}
+	update_output_boxes(s);
+	views_restore_outputs(s);
+	process_motion(s, 0);
+	schedule_state(s);
+}
+
+static void output_set_position(struct output *out, int x, int y) {
+	struct server *s = out->server;
+	if (out->has_position && out->pos_x == x && out->pos_y == y) {
+		return;
+	}
+	out->has_position = true;
+	out->pos_x = x;
+	out->pos_y = y;
+	if (!out->enabled) {
+		return; /* applied when it is enabled again */
+	}
+	views_remember_outputs(s);
+	wlr_output_layout_add(s->output_layout, out->wlr_output, x, y);
 	update_output_boxes(s);
 	views_restore_outputs(s);
 	process_motion(s, 0);
@@ -3527,14 +3642,33 @@ int main(int argc, char *argv[]) {
 	unlink(s.ipc_path);
 	wl_display_destroy_clients(s.display);
 	if (s.xwayland) {
+		wl_list_remove(&s.xwayland_ready.link);
+		wl_list_remove(&s.new_xsurface.link);
 		wlr_xwayland_destroy(s.xwayland);
 	}
+	/* wlroots asserts that nobody listens anymore when an object goes away */
+	struct wl_listener *listeners[] = {
+		&s.new_output, &s.new_input, &s.new_xdg_toplevel, &s.new_xdg_popup, &s.new_layer,
+		&s.cursor_motion, &s.cursor_motion_abs, &s.cursor_button, &s.cursor_axis,
+		&s.cursor_frame, &s.request_cursor, &s.request_set_selection, &s.request_set_primary,
+		&s.request_activate, &s.request_set_shape, &s.new_lock, &s.request_start_drag,
+		&s.start_drag, &s.touch_down, &s.touch_up, &s.touch_motion, &s.touch_cancel,
+		&s.touch_frame, &s.tablet_tool_axis, &s.tablet_tool_proximity, &s.tablet_tool_tip,
+		&s.tablet_tool_button,
+	};
+	for (size_t i = 0; i < sizeof(listeners) / sizeof(listeners[0]); i++) {
+		wl_list_remove(&listeners[i]->link);
+	}
+	if (s.lock) {
+		lock_finish(&s);
+	}
+	/* first: the output handlers still use the scene */
+	wlr_backend_destroy(s.backend);
 	wlr_scene_node_destroy(&s.scene->tree.node);
 	wlr_xcursor_manager_destroy(s.xcursor_mgr);
 	wlr_cursor_destroy(s.cursor);
 	wlr_allocator_destroy(s.allocator);
 	wlr_renderer_destroy(s.renderer);
-	wlr_backend_destroy(s.backend);
 	wl_display_destroy(s.display);
 	return 0;
 }

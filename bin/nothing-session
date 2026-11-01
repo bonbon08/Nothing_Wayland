@@ -9,7 +9,8 @@ export QT_WAYLAND_DISABLE_WINDOWDECORATION=0
 export SDL_VIDEODRIVER="wayland,x11"
 export ELECTRON_OZONE_PLATFORM_HINT=auto
 export _JAVA_AWT_WM_NONREPARENTING=1
-export GDK_BACKEND="wayland,x11"
+# no GDK_BACKEND: GTK prefers Wayland anyway, and apps that ask for X11 themselves
+# (for "no taskbar entry" or "no focus") would be overruled
 
 # keyboard layout from the Nothing config, otherwise from localectl
 cfg="${XDG_CONFIG_HOME:-$HOME/.config}/nothing-de/config.json"

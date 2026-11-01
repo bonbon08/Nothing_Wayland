@@ -12,14 +12,15 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from . import dotmatrix  # noqa: E402
 from .apps import app_icon  # noqa: E402
 from .config import ACCENTS, WALLPAPER_DIR, get_config  # noqa: E402
 from .ipc import WindowManager  # noqa: E402
 from .theme import ThemeManager, hex_to_rgb  # noqa: E402
-from .widgets import WIDGET_TYPES, fetch_json  # noqa: E402
+from .widget_sdk import WIDGET_TYPES  # noqa: E402
+from .widgets import fetch_json  # noqa: E402
 
 PAGES = [
     ("appearance", "Darstellung", "applications-graphics-symbolic"),
@@ -106,10 +107,10 @@ class AppearancePage:
 
         g = group("Anzeige", "Für sehr hochauflösende Bildschirme, auf denen alles winzig wirkt. "
                        "Unter „Bildschirme“ lässt sich jeder einzeln einstellen, das hat Vorrang.")
-        self._scales = [1.0, 1.25, 1.5, 1.75, 2.0]
+        self._scales = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
         self.scale_row = Adw.ComboRow(
             title="Skalierung",
-            model=Gtk.StringList.new(["100 %", "125 %", "150 %", "175 %", "200 %"]))
+            model=Gtk.StringList.new(["50 %", "75 %", "100 %", "125 %", "150 %", "175 %", "200 %"]))
         self.scale_row.connect("notify::selected",
             lambda r, _p: cfg.set("display.scale", self._scales[r.get_selected()]))
         g.add(self.scale_row)
@@ -458,7 +459,7 @@ class AppChooser(Adw.Dialog):
 
 
 # ======================================================================
-SCALES = [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0]
+SCALES = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0]
 
 
 class DisplaysPage:
@@ -511,7 +512,21 @@ class DisplaysPage:
         scale.connect("notify::selected", lambda r, _p: self.cfg.set(f"outputs.{name}.scale",
                                                                      scales[r.get_selected()]))
         row.add_row(scale)
+        for label, key in (("Position X", "x"), ("Position Y", "y")):
+            spin = Adw.SpinRow.new_with_range(0, 16000, 10)
+            spin.set_title(label)
+            spin.set_value(out.get(key, 0))
+            spin.connect("notify::value",
+                         lambda r, _p, k=key: self._set_position(out, k, int(r.get_value())))
+            row.add_row(spin)
         return row
+
+    def _set_position(self, out, key, value):
+        # the shell sends this to the compositor, like the other screen settings
+        path = f"outputs.{out['name']}.position"
+        saved = dict(self.cfg.get(path) or {"x": out.get("x", 0), "y": out.get("y", 0)})
+        saved[key] = value
+        self.cfg.set(path, saved)
 
 
 # ======================================================================

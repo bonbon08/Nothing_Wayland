@@ -61,6 +61,14 @@ window.n-layer, window.n-layer > * {{ background: transparent; }}
 .n-mono, .n-caps {{ font-family: "Space Mono", "Adwaita Mono", "JetBrains Mono", monospace; }}
 .n-caps {{ font-size: 10.5px; letter-spacing: 1.6px; color: @n_muted; }}
 .n-muted {{ color: @n_muted; }}
+.n-dim-label {{ color: @n_muted; font-size: 11px; }}
+button.n-alt-tab-row {{ background: transparent; border: none; box-shadow: none; border-radius: 14px; color: @n_fg; }}
+button.n-alt-tab-row:hover {{ background: alpha(@n_fg, 0.06); }}
+button.n-alt-tab-row.selected {{ background: alpha(@n_accent, 0.28); }}
+.n-overview-tile {{ background: @n_card; border-radius: 18px; padding: 14px; color: @n_fg; }}
+.n-overview-title {{ font-weight: 600; }}
+button.n-tray-btn {{ background: transparent; border: none; box-shadow: none; min-width: 24px; min-height: 24px; padding: 2px; border-radius: 99px; color: @n_fg; }}
+button.n-tray-btn:hover {{ background: alpha(@n_fg, 0.12); }}
 .n-accent-text {{ color: @n_accent; }}
 
 /* ---------- top bar ---------- */

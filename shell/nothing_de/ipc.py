@@ -30,10 +30,11 @@ class WindowManager(GObject.Object):
         return self.sock is not None
 
     def _connect(self):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             s.connect(self.path)
         except OSError:
+            s.close()  # sonst läuft bei jedem Wiederholen (1/s) ein Dateideskriptor aus
             GLib.timeout_add_seconds(1, self._retry)
             return
         self.sock = s

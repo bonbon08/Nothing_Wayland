@@ -180,6 +180,47 @@ def get_bluetooth(callback):
     run_async(["bluetoothctl", "show"], parse)
 
 
+def get_bluetooth_devices(callback):
+    """callback(list of (address, name, connected)) — paired & discovered devices."""
+    def parse(out):
+        devices = []
+        for line in (out or "").splitlines():
+            parts = line.strip().split(None, 2)
+            if len(parts) == 3 and parts[0] == "Device":
+                devices.append((parts[1], parts[2]))
+        return devices
+
+    def got_all(out):
+        def got_connected(connected_out):
+            connected = {addr for addr, _name in parse(connected_out)}
+            callback([(addr, name, addr in connected) for addr, name in parse(out)])
+        run_async(["bluetoothctl", "devices", "Connected"], got_connected)
+    run_async(["bluetoothctl", "devices"], got_all)
+
+
+def bluetooth_device_info(address, callback):
+    """callback(dict with Connected, Paired, Trusted, Name, Icon)."""
+    def parse(out):
+        info = {}
+        if out:
+            for line in out.splitlines():
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    info[k.strip()] = v.strip()
+        callback(info)
+    run_async(["bluetoothctl", "info", address], parse)
+
+
+def bluetooth_connect(address, done=None):
+    run_async(["bluetoothctl", "connect", address],
+              lambda _o: (done and done()))
+
+
+def bluetooth_disconnect(address, done=None):
+    run_async(["bluetoothctl", "disconnect", address],
+              lambda _o: (done and done()))
+
+
 def set_bluetooth(on, done=None):
     run_async(["bluetoothctl", "power", "on" if on else "off"], lambda _o: done and done())
 
