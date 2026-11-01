@@ -75,6 +75,14 @@
 #define BTN_SIZE 12
 #define MAX_TOUCH_POINTS 10
 #define MAX_CYCLE 64
+#define SNAP_EDGE 16      /* the window snaps when the cursor is this close to an edge */
+#define SNAP_CORNER 96    /* ... and to a quarter when also this close to a corner */
+#define DOCK_EDGE 2       /* the cursor reveals a hidden dock this close to the bottom */
+#define DOCK_HOVER 12     /* a revealed dock stays while the cursor is this close to it */
+#define DOCK_TOUCH_EDGE 12
+#define DOCK_HIDE_DELAY 300
+#define DOCK_FRAME_MS 16
+#define DOCK_SLIDE_STEP 0.125f
 
 enum node_kind { NODE_VIEW = 1, NODE_LAYER, NODE_UNMANAGED };
 
@@ -94,6 +102,8 @@ enum {
 
 enum cursor_mode { CUR_PASSTHROUGH, CUR_MOVE, CUR_RESIZE };
 enum view_type { VIEW_XDG, VIEW_X11 };
+/* TILE_MAX is only a snap target: such a window is simply maximized */
+enum tile { TILE_NONE, TILE_MAX, TILE_LEFT, TILE_RIGHT, TILE_TL, TILE_TR, TILE_BL, TILE_BR };
 
 struct server;
 
@@ -126,6 +136,7 @@ struct view {
 	int x, y; /* layout position of the visible window area */
 	int ws;
 	bool mapped, minimized, maximized, fullscreen, placed;
+	enum tile tile;
 	struct wlr_box saved;
 	/* position relative to its output while the output layout changes */
 	struct output *anchor;
@@ -158,6 +169,11 @@ struct layer {
 	struct wlr_scene_tree *popups;
 	struct output *output;
 	bool mapped;
+	/* the dock slides out of the screen while a window overlaps it */
+	bool is_dock, dock_touched;
+	float dock_slide; /* 0 = fully shown, 1 = fully hidden */
+	int dock_home_y;
+	int64_t dock_hide_at;
 	struct wl_listener map, unmap, commit, destroy, new_popup;
 };
 
@@ -236,6 +252,10 @@ struct server {
 	double grab_x, grab_y;
 	struct wlr_box grab_box;
 	uint32_t resize_edges;
+	struct wlr_scene_rect *snap_rect;
+	enum tile snap_tile;
+
+	struct wl_event_source *dock_idle, *dock_timer;
 
 	struct layer *focused_layer;
 
@@ -287,6 +307,9 @@ static void update_output_boxes(struct server *s);
 static void output_set_enabled(struct output *out, bool on);
 static void output_set_scale(struct output *out, float scale);
 static void process_motion(struct server *s, uint32_t time);
+static void schedule_dock(struct server *s);
+static void dock_update(struct server *s);
+static void dock_touch(struct server *s, double lx, double ly, struct layer *hit);
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
@@ -424,6 +447,7 @@ static void view_move(struct view *v, int x, int y) {
 		wlr_xwayland_surface_configure(v->xsurface, x, y,
 			v->xsurface->width, v->xsurface->height);
 	}
+	schedule_dock(v->server);
 }
 
 static void view_configure(struct view *v, int x, int y, int w, int h) {
@@ -438,6 +462,93 @@ static void view_configure(struct view *v, int x, int y, int w, int h) {
 	} else {
 		wlr_xwayland_surface_configure(v->xsurface, x, y, w, h);
 	}
+	schedule_dock(v->server);
+}
+
+static struct wlr_box tile_box(struct output *out, enum tile tile) {
+	struct wlr_box b = out->usable;
+	int left_w = b.width / 2, top_h = b.height / 2;
+	if (tile == TILE_RIGHT || tile == TILE_TR || tile == TILE_BR) {
+		b.x += left_w;
+		b.width -= left_w;
+	} else if (tile != TILE_MAX) {
+		b.width = left_w;
+	}
+	if (tile == TILE_BL || tile == TILE_BR) {
+		b.y += top_h;
+		b.height -= top_h;
+	} else if (tile == TILE_TL || tile == TILE_TR) {
+		b.height = top_h;
+	}
+	return b;
+}
+
+static void view_apply_tile(struct view *v, struct output *out) {
+	struct wlr_box b = tile_box(out, v->tile);
+	int top = view_top_offset(v);
+	view_configure(v, b.x, b.y + top, b.width, b.height - top);
+}
+
+static void view_set_tile(struct view *v, enum tile tile) {
+	static const uint32_t edges[] = {
+		[TILE_LEFT] = WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT,
+		[TILE_RIGHT] = WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_RIGHT,
+		[TILE_TL] = WLR_EDGE_TOP | WLR_EDGE_LEFT,
+		[TILE_TR] = WLR_EDGE_TOP | WLR_EDGE_RIGHT,
+		[TILE_BL] = WLR_EDGE_BOTTOM | WLR_EDGE_LEFT,
+		[TILE_BR] = WLR_EDGE_BOTTOM | WLR_EDGE_RIGHT,
+	};
+	v->tile = tile;
+	if (v->type == VIEW_XDG) {
+		wlr_xdg_toplevel_set_tiled(v->xdg, edges[tile]);
+	}
+}
+
+/* dialogs and windows of a fixed size only move */
+static bool view_can_tile(struct view *v) {
+	if (v->type == VIEW_XDG) {
+		struct wlr_xdg_toplevel_state *st = &v->xdg->current;
+		return !v->xdg->parent && !(st->max_width > 0 && st->min_width == st->max_width &&
+			st->max_height > 0 && st->min_height == st->max_height);
+	}
+	xcb_size_hints_t *h = v->xsurface->size_hints;
+	return !v->xsurface->parent && !(h && (h->flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) &&
+		(h->flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) &&
+		h->min_width == h->max_width && h->min_height == h->max_height);
+}
+
+/* Windows that are no application of their own get no dock icon. */
+static bool view_in_taskbar(struct view *v) {
+	static const enum wlr_xwayland_net_wm_window_type hidden[] = {
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_DESKTOP,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_DOCK,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_TOOLBAR,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_MENU,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_UTILITY,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_SPLASH,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_DROPDOWN_MENU,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_POPUP_MENU,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_TOOLTIP,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_NOTIFICATION,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_COMBO,
+		WLR_XWAYLAND_NET_WM_WINDOW_TYPE_DND,
+	};
+	struct wlr_box g = view_geometry(v);
+	if (g.width <= 1 || g.height <= 1) {
+		return false;
+	}
+	if (v->type == VIEW_XDG) {
+		return !v->xdg->parent;
+	}
+	if (v->xsurface->parent) {
+		return false;
+	}
+	for (size_t i = 0; i < sizeof(hidden) / sizeof(hidden[0]); i++) {
+		if (wlr_xwayland_surface_has_window_type(v->xsurface, hidden[i])) {
+			return false;
+		}
+	}
+	return true;
 }
 
 static void view_place(struct view *v) {
@@ -469,7 +580,35 @@ static void view_place(struct view *v) {
 	v->placed = true;
 }
 
+/* snap a window onto half or a quarter of out */
+static void view_tile(struct view *v, struct output *out, enum tile tile) {
+	if (!v->tile && !v->maximized) {
+		struct wlr_box g = view_geometry(v);
+		v->saved = (struct wlr_box){v->x, v->y, g.width, g.height};
+	}
+	if (v->maximized) {
+		v->maximized = false;
+		if (v->type == VIEW_XDG) {
+			wlr_xdg_toplevel_set_maximized(v->xdg, false);
+		} else {
+			wlr_xwayland_surface_set_maximized(v->xsurface, false, false);
+		}
+	}
+	view_set_tile(v, tile);
+	view_apply_tile(v, out);
+	deco_update(v);
+	schedule_state(v->server);
+}
+
 static void view_maximize(struct view *v, bool on) {
+	if (!on && v->tile && !v->fullscreen) {
+		view_set_tile(v, TILE_NONE);
+		if (v->saved.width > 0) {
+			view_configure(v, v->saved.x, v->saved.y, v->saved.width, v->saved.height);
+		}
+		deco_update(v);
+		return;
+	}
 	if (v->fullscreen || v->maximized == on) {
 		if (v->type == VIEW_XDG && v->xdg->base->initialized) {
 			wlr_xdg_surface_schedule_configure(v->xdg->base);
@@ -481,8 +620,12 @@ static void view_maximize(struct view *v, bool on) {
 		return;
 	}
 	if (on) {
-		struct wlr_box g = view_geometry(v);
-		v->saved = (struct wlr_box){v->x, v->y, g.width, g.height};
+		if (v->tile) {
+			view_set_tile(v, TILE_NONE); /* v->saved still is the floating size */
+		} else {
+			struct wlr_box g = view_geometry(v);
+			v->saved = (struct wlr_box){v->x, v->y, g.width, g.height};
+		}
 		int top = view_top_offset(v);
 		view_configure(v, out->usable.x, out->usable.y + top,
 			out->usable.width, out->usable.height - top);
@@ -510,7 +653,7 @@ static void view_fullscreen(struct view *v, bool on) {
 		return;
 	}
 	if (on) {
-		if (!v->maximized) {
+		if (!v->maximized && !v->tile) {
 			struct wlr_box g = view_geometry(v);
 			v->saved = (struct wlr_box){v->x, v->y, g.width, g.height};
 		}
@@ -524,6 +667,8 @@ static void view_fullscreen(struct view *v, bool on) {
 			int top = view_top_offset(v);
 			view_configure(v, out->usable.x, out->usable.y + top,
 				out->usable.width, out->usable.height - top);
+		} else if (v->tile) {
+			view_apply_tile(v, out);
 		} else if (v->saved.width > 0) {
 			view_configure(v, v->saved.x, v->saved.y, v->saved.width, v->saved.height);
 		}
@@ -794,11 +939,12 @@ static char *build_state(struct server *s) {
 				wl_client_get_credentials(v->xdg->base->client->client, &pid, NULL, NULL);
 			}
 			fprintf(f, ",\"ws\":%d,\"minimized\":%s,\"maximized\":%s,"
-				"\"fullscreen\":%s,\"x11\":%s,\"pid\":%d}",
+				"\"fullscreen\":%s,\"x11\":%s,\"taskbar\":%s,\"pid\":%d}",
 				v->ws + 1, v->minimized ? "true" : "false",
 				v->maximized ? "true" : "false",
 				v->fullscreen ? "true" : "false",
-				v->type == VIEW_X11 ? "true" : "false", (int)pid);
+				v->type == VIEW_X11 ? "true" : "false",
+				view_in_taskbar(v) ? "true" : "false", (int)pid);
 			first = false;
 		}
 	}
@@ -860,6 +1006,7 @@ static void schedule_state(struct server *s) {
 	if (!s->state_idle) {
 		s->state_idle = wl_event_loop_add_idle(s->loop, state_idle_cb, s);
 	}
+	schedule_dock(s);
 }
 
 static struct view *view_by_id(struct server *s, uint32_t id) {
@@ -933,7 +1080,7 @@ static void ipc_handle(struct ipc_client *c, char *line) {
 	} else if (!strcmp(cmd, "geometry") && v && rest) {
 		int gx, gy, gw, gh;
 		if (sscanf(rest, "%d %d %d %d", &gx, &gy, &gw, &gh) == 4 && !v->fullscreen) {
-			if (v->maximized) {
+			if (v->maximized || v->tile) {
 				view_maximize(v, false);
 			}
 			view_configure(v, gx, gy, gw, gh);
@@ -1394,22 +1541,101 @@ static struct wlr_surface *desktop_at(struct server *s, double lx, double ly,
 static void reset_cursor_mode(struct server *s) {
 	s->cursor_mode = CUR_PASSTHROUGH;
 	s->grabbed = NULL;
+	s->snap_tile = TILE_NONE;
+	wlr_scene_node_set_enabled(&s->snap_rect->node, false);
+	schedule_dock(s);
+}
+
+static enum tile snap_target(struct server *s, struct output *out) {
+	double x = s->cursor->x, y = s->cursor->y;
+	int right = out->full.x + out->full.width;
+	int bottom = out->full.y + out->full.height;
+	bool near_left = x < out->full.x + SNAP_CORNER;
+	bool near_right = x >= right - SNAP_CORNER;
+	bool near_top = y < out->usable.y + SNAP_CORNER;
+	bool near_bottom = y >= bottom - SNAP_CORNER;
+	if (x < out->full.x + SNAP_EDGE) {
+		return near_top ? TILE_TL : near_bottom ? TILE_BL : TILE_LEFT;
+	}
+	if (x >= right - SNAP_EDGE) {
+		return near_top ? TILE_TR : near_bottom ? TILE_BR : TILE_RIGHT;
+	}
+	/* the bar is part of the zone: dragging a window onto it maximizes */
+	if (y < out->usable.y + SNAP_EDGE) {
+		return near_left ? TILE_TL : near_right ? TILE_TR : TILE_MAX;
+	}
+	if (y >= bottom - SNAP_EDGE) {
+		return near_left ? TILE_BL : near_right ? TILE_BR : TILE_NONE;
+	}
+	return TILE_NONE;
+}
+
+/* show where the window would land, right below the window itself */
+static void snap_preview_update(struct server *s, struct view *v, struct output *out) {
+	s->snap_tile = view_can_tile(v) ? snap_target(s, out) : TILE_NONE;
+	if (s->snap_tile == TILE_NONE) {
+		wlr_scene_node_set_enabled(&s->snap_rect->node, false);
+		return;
+	}
+	struct wlr_box b = tile_box(out, s->snap_tile);
+	const float alpha = 0.3f;
+	float color[4] = {s->accent[0] * alpha, s->accent[1] * alpha, s->accent[2] * alpha, alpha};
+	wlr_scene_rect_set_color(s->snap_rect, color);
+	wlr_scene_rect_set_size(s->snap_rect, b.width, b.height);
+	wlr_scene_node_reparent(&s->snap_rect->node, v->tree->node.parent);
+	wlr_scene_node_set_position(&s->snap_rect->node, b.x, b.y);
+	wlr_scene_node_place_below(&s->snap_rect->node, &v->tree->node);
+	wlr_scene_node_set_enabled(&s->snap_rect->node, true);
+}
+
+static void snap_apply(struct server *s, struct view *v, enum tile tile) {
+	struct output *out = output_at(s, s->cursor->x, s->cursor->y);
+	if (!out) {
+		return;
+	}
+	/* the cursor dragged the window partly off the screen; this position is
+	 * what it comes back to later. view_maximize also uses the window's output. */
+	struct wlr_box g = view_geometry(v);
+	struct wlr_box *a = &out->usable;
+	int top = view_top_offset(v);
+	int x = v->x, y = v->y;
+	if (x + g.width > a->x + a->width) x = a->x + a->width - g.width;
+	if (y + g.height > a->y + a->height) y = a->y + a->height - g.height;
+	if (x < a->x) x = a->x;
+	if (y < a->y + top) y = a->y + top;
+	view_move(v, x, y);
+	if (tile != TILE_MAX) {
+		view_tile(v, out, tile);
+		return;
+	}
+	view_maximize(v, true);
+	deco_update(v);
+	schedule_state(s);
 }
 
 static void process_motion(struct server *s, uint32_t time) {
 	if (s->drag_icon) {
 		wlr_scene_node_set_position(&s->drag_icon->node, s->cursor->x, s->cursor->y);
 	}
+	dock_update(s);
 	if (s->cursor_mode == CUR_MOVE && s->grabbed) {
 		struct view *v = s->grabbed;
-		if (v->maximized) {
-			/* drag out of maximized: restore under the cursor */
+		if (v->maximized || v->tile) {
+			/* drag out of maximized or tiled: restore under the cursor */
 			struct wlr_box g = view_geometry(v);
 			view_maximize(v, false);
 			s->grab_x = g.width > 0 ? v->saved.width / 2.0 : 0;
 			s->grab_y = 10;
 		}
-		view_move(v, s->cursor->x - s->grab_x, s->cursor->y - s->grab_y);
+		int x = s->cursor->x - s->grab_x, y = s->cursor->y - s->grab_y;
+		struct output *out = output_at(s, s->cursor->x, s->cursor->y);
+		if (out) {
+			/* windows never go under the bar */
+			int min_y = out->usable.y + view_top_offset(v);
+			if (y < min_y) y = min_y;
+			snap_preview_update(s, v, out);
+		}
+		view_move(v, x, y);
 		return;
 	}
 	if (s->cursor_mode == CUR_RESIZE && s->grabbed) {
@@ -1420,6 +1646,10 @@ static void process_motion(struct server *s, uint32_t time) {
 		int top = s->grab_box.y, bottom = s->grab_box.y + s->grab_box.height;
 		if (s->resize_edges & WLR_EDGE_TOP) {
 			top = by;
+			struct output *out = view_output(v);
+			if (out && top < out->usable.y + view_top_offset(v)) {
+				top = out->usable.y + view_top_offset(v);
+			}
 			if (top >= bottom) top = bottom - 1;
 		} else if (s->resize_edges & WLR_EDGE_BOTTOM) {
 			bottom = by;
@@ -1491,6 +1721,7 @@ static void begin_interactive(struct view *v, enum cursor_mode mode, uint32_t ed
 			v->maximized = false;
 			if (v->type == VIEW_XDG) wlr_xdg_toplevel_set_maximized(v->xdg, false);
 		}
+		view_set_tile(v, TILE_NONE);
 	}
 }
 
@@ -1509,9 +1740,13 @@ static void cursor_button(struct wl_listener *l, void *data) {
 	if (ev->state == WL_POINTER_BUTTON_STATE_RELEASED) {
 		if (s->cursor_mode != CUR_PASSTHROUGH) {
 			struct view *g = s->grabbed;
+			enum tile tile = s->snap_tile;
 			reset_cursor_mode(s);
 			if (g && g->type == VIEW_XDG) {
 				wlr_xdg_toplevel_set_resizing(g->xdg, false);
+			}
+			if (g && tile != TILE_NONE) {
+				snap_apply(s, g, tile);
 			}
 		}
 		wlr_seat_pointer_notify_button(s->seat, ev->time_msec, ev->button, ev->state);
@@ -1672,6 +1907,7 @@ static void touch_down(struct wl_listener *l, void *data) {
 	struct view *v;
 	struct layer *ly2;
 	struct wlr_surface *surface = desktop_at(s, lx, ly, &sx, &sy, &v, &ly2, NULL);
+	dock_touch(s, lx, ly, ly2);
 	struct touch_point *tp = touch_point_new(s, ev->touch_id);
 	if (!tp) {
 		return;
@@ -1878,6 +2114,140 @@ static void tablet_tool_button(struct wl_listener *l, void *data) {
 /* ------------------------------------------------------------------ */
 /* layer shell                                                        */
 
+static void dock_apply_slide(struct layer *ly) {
+	struct output *out = ly->output;
+	if (!out) {
+		return;
+	}
+	int distance = out->full.y + out->full.height - ly->dock_home_y;
+	struct wlr_scene_node *node = &ly->scene->tree->node;
+	wlr_scene_node_set_position(node, node->x, ly->dock_home_y + (int)(ly->dock_slide * distance));
+	/* a hidden dock must not catch input, and a screen below would show it */
+	wlr_scene_node_set_enabled(node, ly->mapped && ly->dock_slide < 1.0f);
+}
+
+static bool dock_wanted(struct layer *ly) {
+	struct server *s = ly->server;
+	struct output *out = ly->output;
+	struct wlr_layer_surface_v1 *ls = ly->surface;
+	if (!wl_list_empty(&ly->popups->children) || ly->dock_touched) {
+		return true;
+	}
+	/* The open launcher lifts the dock above its dim, the dock accepts dropped
+	 * apps then. Ask for the launcher itself and not for the dock's layer: a
+	 * hidden dock gets no frames, so it would not commit the new layer. */
+	struct layer *other;
+	wl_list_for_each(other, &s->layers_list, link) {
+		if (other->mapped && other->surface->namespace &&
+				!strcmp(other->surface->namespace, "nothing-launcher")) {
+			return true;
+		}
+	}
+	struct wlr_box box = {ly->scene->tree->node.x, ly->dock_home_y,
+		ls->current.actual_width, ls->current.actual_height};
+	double cx = s->cursor->x, cy = s->cursor->y;
+	if (s->cursor_mode == CUR_PASSTHROUGH &&
+			wlr_output_layout_output_at(s->output_layout, cx, cy) == out->wlr_output) {
+		if (cy >= out->full.y + out->full.height - DOCK_EDGE) {
+			return true;
+		}
+		if (ly->dock_slide < 1.0f && cy >= box.y - DOCK_HOVER &&
+				cx >= box.x - DOCK_HOVER && cx < box.x + box.width + DOCK_HOVER) {
+			return true;
+		}
+	}
+	struct view *v;
+	wl_list_for_each(v, &s->views, link) {
+		if (!v->mapped || v->minimized || v->ws != s->cur_ws) {
+			continue;
+		}
+		struct wlr_box g = view_geometry(v);
+		if (v->x < box.x + box.width && v->x + g.width > box.x &&
+				v->y < box.y + box.height && v->y + g.height > box.y) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static int64_t now_ms(void) {
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return now.tv_sec * 1000LL + now.tv_nsec / 1000000;
+}
+
+/* one animation step; returns whether a dock still has to move */
+static bool dock_step(struct server *s) {
+	bool busy = false;
+	struct layer *ly;
+	wl_list_for_each(ly, &s->layers_list, link) {
+		if (!ly->is_dock || !ly->output || !ly->mapped) {
+			continue;
+		}
+		float slide = ly->dock_slide;
+		if (dock_wanted(ly)) {
+			ly->dock_hide_at = 0;
+			slide -= DOCK_SLIDE_STEP;
+		} else if (slide < 1.0f) {
+			int64_t now = now_ms();
+			if (!ly->dock_hide_at) {
+				ly->dock_hide_at = now + DOCK_HIDE_DELAY;
+			}
+			if (now >= ly->dock_hide_at) {
+				slide += DOCK_SLIDE_STEP;
+			}
+			busy = true;
+		}
+		slide = slide < 0.0f ? 0.0f : slide > 1.0f ? 1.0f : slide;
+		if (slide != ly->dock_slide) {
+			ly->dock_slide = slide;
+			dock_apply_slide(ly);
+			busy = busy || slide > 0.0f;
+		}
+	}
+	return busy;
+}
+
+static int dock_timer_cb(void *data) {
+	struct server *s = data;
+	if (dock_step(s)) {
+		wl_event_source_timer_update(s->dock_timer, DOCK_FRAME_MS);
+	}
+	return 0;
+}
+
+static void dock_update(struct server *s) {
+	if (dock_step(s)) {
+		wl_event_source_timer_update(s->dock_timer, DOCK_FRAME_MS);
+	}
+}
+
+static void dock_idle_cb(void *data) {
+	struct server *s = data;
+	s->dock_idle = NULL;
+	dock_update(s);
+}
+
+static void schedule_dock(struct server *s) {
+	if (!s->dock_idle) {
+		s->dock_idle = wl_event_loop_add_idle(s->loop, dock_idle_cb, s);
+	}
+}
+
+/* touch screens have no hover: a tap at the bottom edge reveals the dock and
+ * a tap anywhere else lets it go again */
+static void dock_touch(struct server *s, double lx, double ly, struct layer *hit) {
+	struct layer *d;
+	wl_list_for_each(d, &s->layers_list, link) {
+		if (d->is_dock && d->output) {
+			struct wlr_box *f = &d->output->full;
+			d->dock_touched = d == hit || (lx >= f->x && lx < f->x + f->width &&
+				ly < f->y + f->height && ly >= f->y + f->height - DOCK_TOUCH_EDGE);
+		}
+	}
+	schedule_dock(s);
+}
+
 static void arrange_layers(struct output *out) {
 	struct server *s = out->server;
 	struct wlr_box full = out->full;
@@ -1896,6 +2266,10 @@ static void arrange_layers(struct output *out) {
 			wlr_scene_layer_surface_v1_configure(ly->scene, &full, &usable);
 			wlr_scene_node_set_position(&ly->popups->node,
 				ly->scene->tree->node.x, ly->scene->tree->node.y);
+			if (ly->is_dock) {
+				ly->dock_home_y = ly->scene->tree->node.y;
+				dock_apply_slide(ly);
+			}
 		}
 	}
 	bool changed = memcmp(&usable, &out->usable, sizeof(usable)) != 0;
@@ -1907,9 +2281,12 @@ static void arrange_layers(struct output *out) {
 				int top = view_top_offset(v);
 				view_configure(v, usable.x, usable.y + top,
 					usable.width, usable.height - top);
+			} else if (v->tile && !v->fullscreen && view_output(v) == out) {
+				view_apply_tile(v, out);
 			}
 		}
 	}
+	schedule_dock(s);
 }
 
 static struct wlr_scene_tree *layer_tree(struct server *s, enum zwlr_layer_shell_v1_layer l) {
@@ -2017,6 +2394,7 @@ static void server_new_layer(struct wl_listener *l, void *data) {
 	ly->server = s;
 	ly->surface = ls;
 	ly->output = out;
+	ly->is_dock = ls->namespace && !strcmp(ls->namespace, "nothing-dock");
 	ly->scene = wlr_scene_layer_surface_v1_create(layer_tree(s, ls->pending.layer), ls);
 	ly->scene->tree->node.data = ly;
 	ly->popups = wlr_scene_tree_create(ls->pending.layer < ZWLR_LAYER_SHELL_V1_LAYER_TOP ?
@@ -2101,6 +2479,7 @@ static void xdg_commit(struct wl_listener *l, void *data) {
 			view_move(v, nx, ny);
 		}
 	}
+	schedule_dock(s);
 }
 
 static void view_destroy_common(struct view *v) {
@@ -2391,12 +2770,14 @@ static void x11_request_configure(struct wl_listener *l, void *data) {
 		wlr_xwayland_surface_configure(v->xsurface, ev->x, ev->y, ev->width, ev->height);
 		return;
 	}
-	if (v->maximized || v->fullscreen) {
+	if (v->maximized || v->fullscreen || v->tile) {
 		wlr_xwayland_surface_configure(v->xsurface, v->x, v->y,
 			v->xsurface->width, v->xsurface->height);
 		return;
 	}
-	view_configure(v, ev->x, ev->y, ev->width, ev->height);
+	struct output *out = output_at(v->server, ev->x + ev->width / 2.0, ev->y + ev->height / 2.0);
+	int min_y = out ? out->usable.y + view_top_offset(v) : ev->y;
+	view_configure(v, ev->x, ev->y < min_y ? min_y : ev->y, ev->width, ev->height);
 	deco_update(v);
 }
 
@@ -2714,6 +3095,8 @@ static void views_restore_outputs(struct server *s) {
 		} else if (v->maximized) {
 			view_configure(v, out->usable.x, out->usable.y + top,
 				out->usable.width, out->usable.height - top);
+		} else if (v->tile) {
+			view_apply_tile(v, out);
 		} else {
 			struct wlr_box g = view_geometry(v);
 			int x = out->full.x + v->anchor_x;
@@ -3019,6 +3402,9 @@ int main(int argc, char *argv[]) {
 	float black[4] = {0, 0, 0, 1};
 	s.lock_bg = wlr_scene_rect_create(s.layers[LYR_LOCK], 0, 0, black);
 	wlr_scene_node_set_enabled(&s.layers[LYR_LOCK]->node, false);
+	s.snap_rect = wlr_scene_rect_create(s.layers[LYR_WINDOWS], 1, 1, black);
+	wlr_scene_node_set_enabled(&s.snap_rect->node, false);
+	s.dock_timer = wl_event_loop_add_timer(s.loop, dock_timer_cb, &s);
 
 	s.xdg_shell = wlr_xdg_shell_create(s.display, 6);
 	s.xdg_shell->data = &s;

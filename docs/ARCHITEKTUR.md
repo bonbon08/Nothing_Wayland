@@ -90,7 +90,7 @@ export-dmabuf, gamma-control, idle-notify und idle-inhibit, xdg-output, Relative
 | `theme.py` | Erzeugt das CSS aus Palette und Kontrastfarbe und synchronisiert GNOMEs `color-scheme`/`accent-color` |
 | `layer.py` | Hilfen für gtk4-layer-shell, `Overlay` (Vollbild-Ebene mit schwebendem Panel) |
 | `bar.py` | Leiste oben |
-| `dock.py` | Dock: Gruppierung, Ziehen zum Umsortieren und Anheften, automatische Symbolgröße |
+| `dock.py` | Dock: Gruppierung, Ziehen zum Umsortieren und Anheften, automatische Symbolgröße. Das Ausblenden übernimmt `nothing-wm`, der das Dock am Namespace `nothing-dock` erkennt; es reserviert deshalb keinen Platz. Fenster von Einträgen mit `NoDisplay` oder `Hidden` bekommen kein Symbol |
 | `desktop.py` | Hintergrund und Widget-Fläche (Verschieben, Rechtsklick-Menü) |
 | `widgets.py` | Die Widgets |
 | `dotmatrix.py` | Punktmatrix-Schrift (5×7) mit cairo |

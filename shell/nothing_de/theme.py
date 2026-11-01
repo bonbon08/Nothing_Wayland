@@ -83,10 +83,11 @@ window.n-layer, window.n-layer > * {{ background: transparent; }}
 button.n-ws {{ padding: 4px 4px; min-height: 0; min-width: 0; }}
 
 /* ---------- dock ---------- */
-.n-dock {{
+/* direct child of the layer window: must win against its transparent rule above.
+   No shadow, the surface is exactly this big and would cut it off as a rectangle. */
+window.n-layer > .n-dock {{
   background: {p['glass']};
   border: 1px solid @n_border; border-radius: 26px; padding: 8px 10px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.35);
 }}
 .n-dock button.n-dock-item {{
   background: transparent; border: none; box-shadow: none; padding: 4px;

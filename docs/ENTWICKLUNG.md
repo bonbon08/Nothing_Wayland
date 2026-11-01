@@ -97,6 +97,9 @@ Die Screenshots in `docs/screenshots/` sind so entstanden (1920×1080, deutsches
 - [ ] Mit zwei Bildschirmen: „Dock auf allen Bildschirmen“ wirkt sofort
 - [ ] App-Suche: Die Verdunklung reicht bis zum unteren Rand, das Dock bleibt hell und bedienbar
 - [ ] GTK-3- und Electron-Apps (z. B. Codium) starten aus Dock und App-Suche
+- [ ] Fenster lässt sich nicht unter die Leiste schieben; an die Leiste gezogen zeigt es eine Vorschau und wird beim Loslassen maximiert
+- [ ] Fenster an den linken oder rechten Rand gezogen füllt die Hälfte, an eine Ecke gezogen ein Viertel; vier Fenster füllen den Bildschirm; Herausziehen stellt die alte Größe wieder her
+- [ ] Liegt ein Fenster über dem Dock, gleitet es weg; Maus an den unteren Rand holt es zurück, es bleibt, solange die Maus darauf ist
 - [ ] Super + L sperrt; ein falsches Passwort wird abgelehnt, das richtige entsperrt
 - [ ] Kontrastfarbe und Hell/Dunkel in den Einstellungen wirken sofort
 - [ ] Shell beenden (`pkill -f '[n]othing_de.shell'`): Sie kommt genau einmal zurück

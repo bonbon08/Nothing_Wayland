@@ -43,8 +43,13 @@ Weitere Bilder: [Sperrbildschirm](docs/screenshots/lock.png) · [Rechtsklick-Men
   - Apps aus der **App-Suche ins Dock ziehen** oder dort per **Rechtsklick → „Im Dock behalten“** anheften
   - laufende Apps per Rechtsklick anheften; „Nach links/rechts verschieben“ und „Aus dem Dock entfernen“
   - bei vielen Apps werden die Symbole automatisch kleiner, damit alles auf den Bildschirm passt
+  - **blendet sich aus**, sobald ein Fenster darüberliegt, und kommt zurück, wenn die Maus an den unteren Rand geht
+  - Dialoge, Hilfsfenster und Apps mit `NoDisplay` in der `.desktop`-Datei bekommen kein Symbol
   - der Knopf für die App-Suche sitzt wahlweise links oder rechts (Einstellungen → Dock & Leiste)
 - **Kontrollzentrum:** WLAN, Bluetooth, Dunkelmodus, *Nicht stören*, Lautstärke, Helligkeit, Kontrastfarbe, Ein/Aus.
+- **Kacheln wie bei GNOME:** Fenster an die Leiste ziehen maximiert, an den linken oder rechten Rand ziehen ergibt
+  eine Hälfte, an eine Ecke ein Viertel, also bis zu vier Fenster pro Bildschirm. Eine Vorschau zeigt die Zielfläche.
+  Unter die Leiste lassen sich Fenster nicht schieben.
 - **Einstellungs-App:** Darstellung, Widgets, Dock und Leiste, Arbeitsflächen, Standard-Apps, Tastatur,
   Benutzer (AccountsService) und Online-Konten (GNOME Online Accounts).
 - **Benachrichtigungen** (`org.freedesktop.Notifications`).

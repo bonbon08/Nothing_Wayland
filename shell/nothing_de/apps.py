@@ -6,6 +6,12 @@ import subprocess
 from gi.repository import Gdk, Gio, GLib
 
 
+def is_hidden(app):
+    """NoDisplay= or Hidden= in the .desktop file: helpers, not apps to show.
+    Not should_show(): a GNOME-only app started by hand is still a real app."""
+    return app.get_nodisplay() or app.get_is_hidden()
+
+
 class AppIndex:
     def __init__(self):
         self.apps = []
@@ -18,7 +24,9 @@ class AppIndex:
     def reload(self):
         self.apps = []
         self.by_key = {}
-        for app in Gio.AppInfo.get_all():
+        # visible entries first: "codium" must find the app itself, not its
+        # hidden url handler with the same executable
+        for app in sorted(Gio.AppInfo.get_all(), key=lambda a: not a.should_show()):
             if not isinstance(app, Gio.DesktopAppInfo):
                 continue
             aid = app.get_id() or ""
@@ -59,9 +67,12 @@ class AppIndex:
         app = self.get(app_id + ".desktop")
         if app:
             return app
+        # only a guess: it must not make a real window look like a hidden entry
         results = Gio.DesktopAppInfo.search(app_id)
-        if results and results[0]:
-            return self.get(results[0][0])
+        for desktop_id in results[0] if results else ():
+            app = self.get(desktop_id)
+            if app and not is_hidden(app):
+                return app
         return None
 
     def search(self, query):

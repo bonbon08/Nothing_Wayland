@@ -4,7 +4,7 @@ import math
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
 from . import layer
-from .apps import launch_app
+from .apps import is_hidden, launch_app
 from .icons import icon_widget
 from .theme import hex_to_rgb
 
@@ -136,8 +136,10 @@ class Dock(Gtk.ApplicationWindow):
         self.shell = shell
         self.cfg = shell.cfg
         self.monitor = monitor
+        # no exclusive zone: windows may use the full height, nothing-wm slides
+        # the dock (recognised by this namespace) away while one overlaps it
         layer.setup(self, layer="top", anchors=("bottom",), margins={"bottom": 10},
-                    exclusive="auto", namespace="nothing-dock", monitor=monitor)
+                    namespace="nothing-dock", monitor=monitor)
         self.add_css_class("n-root")
         self.box = Gtk.Box(spacing=4)
         self.box.add_css_class("n-dock")
@@ -286,14 +288,18 @@ class Dock(Gtk.ApplicationWindow):
         order = []
         for did in pinned_ids:
             app = self.shell.apps.get(did)
-            if app is None:
+            if app is None or is_hidden(app):
                 continue
             key = app.get_id()
             groups[key] = (app, [])
             order.append(key)
         running_order = []
         for w in st.get("windows", []):
+            if not w.get("taskbar", True):
+                continue
             app = self.shell.apps.lookup(w.get("app_id"))
+            if app and is_hidden(app):
+                continue
             key = app.get_id() if app else "win:" + (w.get("app_id") or str(w["id"]))
             if key not in groups:
                 groups[key] = (app, [])
