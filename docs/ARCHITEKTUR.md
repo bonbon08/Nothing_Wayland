@@ -81,7 +81,8 @@ damit der Stift auch dort funktioniert.
 Presentation-Time, Fractional-Scale, Cursor-Shape, xdg-activation, screencopy, ext-image-copy-capture,
 export-dmabuf, linux-dmabuf (für Sunshine und andere Aufnahme-Clients), gamma-control, idle-notify und
 idle-inhibit, xdg-output, Relative-Pointer, Pointer-Constraints (Spiele sperren oder begrenzen die Maus; der
-Compositor hält den Zeiger dann an, die relative Bewegung geht weiter an den Client), Tablet-v2.
+Compositor hält den Zeiger dann an, die relative Bewegung geht weiter an den Client; endet die Sperre,
+springt der Cursor an den vom Spiel gewünschten Punkt), Tablet-v2.
 
 ## Shell (`shell/nothing_de/`)
 
