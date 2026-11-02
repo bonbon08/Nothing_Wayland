@@ -33,6 +33,7 @@ Fenster-IDs (`ID`) stammen aus `state`. Arbeitsflächen werden ab 1 gezählt.
 | `minimize ID` | Minimieren |
 | `maximize ID` | Maximieren umschalten |
 | `fullscreen ID` | Vollbild umschalten |
+| `ontop ID 0\|1` | Immer im Vordergrund an- oder ausschalten; das Fenster bleibt über anderen Fenstern, aber unter Leiste und Dock |
 | `geometry ID X Y B H` | Fenster an Position X/Y mit Breite B und Höhe H setzen (Layout-Koordinaten) |
 | `ws N` | Zu Arbeitsfläche N wechseln |
 | `move ID N` | Fenster auf Arbeitsfläche N verschieben |
@@ -64,7 +65,7 @@ Die Shell sendet diese Werte beim Verbinden und bei jeder Änderung von `config.
 ```json
 {"event":"state","workspace":1,"workspaces":4,"focused":3,"locked":false,
  "windows":[{"id":3,"app_id":"org.gnome.Console","title":"~","ws":1,
-             "minimized":false,"maximized":false,"fullscreen":false,"x11":false,"taskbar":true,"pid":1234}],
+             "minimized":false,"maximized":false,"fullscreen":false,"ontop":false,"x11":false,"taskbar":true,"pid":1234}],
  "outputs":[{"name":"DP-1","description":"Dell U2720Q","width":3840,"height":2160,
              "scale":1.500,"enabled":true}]}
 ```

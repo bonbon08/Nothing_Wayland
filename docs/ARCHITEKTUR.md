@@ -42,6 +42,7 @@ Eine einzige C-Datei auf Basis von wlroots 0.20 und dessen Szenengraph (`wlr_sce
 | `LYR_BACKGROUND` | layer-shell „background“: Schreibtisch mit Wallpaper und Widgets |
 | `LYR_BOTTOM` | layer-shell „bottom“ |
 | `LYR_WINDOWS` | ein Teilbaum je Arbeitsfläche (`ws_tree[0..9]`); nur der aktive ist eingeschaltet |
+| `LYR_ONTOP` | Fenster, die immer oben bleiben sollen (`ontop`): über den normalen Fenstern, unter Leiste und Dock |
 | `LYR_TOP` | layer-shell „top“: Leiste und Dock, dazu Popups unterer Ebenen |
 | `LYR_UNMANAGED` | X11-Override-Redirect-Fenster (Menüs, Tooltips) |
 | `LYR_FULLSCREEN` | Vollbildfenster, damit sie über Leiste und Dock liegen |
@@ -78,7 +79,9 @@ damit der Stift auch dort funktioniert.
 
 **Weitere Protokolle:** Zwischenablage (data-device, primary-selection, wlr/ext-data-control), Viewporter,
 Presentation-Time, Fractional-Scale, Cursor-Shape, xdg-activation, screencopy, ext-image-copy-capture,
-export-dmabuf, gamma-control, idle-notify und idle-inhibit, xdg-output, Relative-Pointer, Tablet-v2.
+export-dmabuf, linux-dmabuf (für Sunshine und andere Aufnahme-Clients), gamma-control, idle-notify und
+idle-inhibit, xdg-output, Relative-Pointer, Pointer-Constraints (Spiele sperren oder begrenzen die Maus; der
+Compositor hält den Zeiger dann an, die relative Bewegung geht weiter an den Client), Tablet-v2.
 
 ## Shell (`shell/nothing_de/`)
 

@@ -10,6 +10,7 @@ wayland_server = dependency('wayland-server')
 wayland_protos = dependency('wayland-protocols')
 xkbcommon = dependency('xkbcommon')
 xcb = dependency('xcb')
+pixman = dependency('pixman-1')
 
 wayland_scanner = find_program(
   dependency('wayland-scanner', native: true).get_variable('wayland_scanner'),
@@ -31,5 +32,5 @@ endforeach
 
 executable('nothing-wm',
   ['nothing-wm.c', protocol_headers],
-  dependencies: [wlroots, wayland_server, xkbcommon, xcb],
+  dependencies: [wlroots, wayland_server, xkbcommon, xcb, pixman],
   install: true)

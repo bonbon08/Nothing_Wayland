@@ -102,6 +102,9 @@ class DockItem(Gtk.Box):
             pinned = self.dock.is_pinned(self.app)
             sec.append("Aus dem Dock entfernen" if pinned else "Im Dock behalten", "dock.pin")
             act("pin", lambda *_: self.dock.toggle_pin(self.app))
+            ontop = self.dock.is_ontop(self.app)
+            sec.append("Nicht mehr im Vordergrund" if ontop else "Immer im Vordergrund", "dock.ontop")
+            act("ontop", lambda *_: self.dock.toggle_ontop(self.app))
         menu.append_section(None, sec)
         if self.app and self.dock.is_pinned(self.app):
             ids = self.dock.pinned_ids()
@@ -178,6 +181,17 @@ class Dock(Gtk.ApplicationWindow):
         else:
             pinned.append(app.get_id())
         self.cfg.set("dock.pinned", pinned)
+
+    def is_ontop(self, app):
+        return app.get_id() in (self.cfg.get("ontop_apps") or [])
+
+    def toggle_ontop(self, app):
+        ontop = list(self.cfg.get("ontop_apps") or [])
+        if app.get_id() in ontop:
+            ontop.remove(app.get_id())
+        else:
+            ontop.append(app.get_id())
+        self.cfg.set("ontop_apps", ontop)
 
     def move_pin(self, desktop_id, index):
         """Pin desktop_id before the item now at position index (moving it if it

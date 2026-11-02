@@ -49,6 +49,7 @@ class Shell:
         self.wm.connect("action", lambda _w, name: self.run_action(name))
         self.wm.connect("connected", lambda *_: self.push_wm_config())
         self.wm.connect("state", self._on_wm_state)
+        self.cfg.connect("changed", lambda *_: self.sync_ontop())
         self.cfg.connect("changed", lambda *_: self.push_wm_config())
         self.cfg.connect("changed", lambda *_: self.sync_monitors())
         if self.wm.available:
@@ -130,6 +131,19 @@ class Shell:
         if names != self._output_names:
             self._output_names = names
             self.push_outputs()
+        self.sync_ontop()
+
+    def sync_ontop(self):
+        """Bring the always-on-top flag of every window in line with the config.
+        Idempotent: a window is only told when its flag differs from the compositor's."""
+        if not self.wm.available:
+            return
+        ontop = set(self.cfg.get("ontop_apps") or [])
+        for w in self.wm.state.get("windows", []):
+            app = self.apps.lookup(w.get("app_id"))
+            wanted = app is not None and app.get_id() in ontop
+            if wanted != bool(w.get("ontop")):
+                self.wm.send("ontop", w["id"], 1 if wanted else 0)
 
     # ----------------------------------------------------------- actions
     def run_action(self, name):
