@@ -253,6 +253,9 @@ struct server {
 	/* the lock or confine of the surface under the pointer, if it asked for one */
 	struct wlr_pointer_constraint_v1 *constraint;
 	struct wl_listener constraint_gone;
+	/* where a lock asked the cursor to reappear once it ends (layout coordinates) */
+	bool hint_pending;
+	double hint_x, hint_y;
 
 	struct wl_list outputs, views, layers_list, keyboards, ipc_clients;
 	int n_touch;
@@ -1738,8 +1741,39 @@ static void hot_corner_update(struct server *s) {
 /* A game locks the pointer (or confines it to a region) while it has focus.
  * Only one constraint is active at a time: the one of the surface under the
  * pointer. Relative motion still reaches the client, so the game keeps turning. */
+/* a lock that ends while the pointer is on its surface moves the cursor to the
+ * position the game hinted; the warp happens at the next motion event, because
+ * the pointer may not change focus or move in the middle of a constraint update */
+static void pointer_hint_queue(struct server *s, struct wlr_pointer_constraint_v1 *c) {
+	if (c->type != WLR_POINTER_CONSTRAINT_V1_LOCKED || !c->current.cursor_hint.enabled) {
+		return;
+	}
+	if (s->seat->pointer_state.focused_surface != c->surface) {
+		return;
+	}
+	/* the surface origin in layout coordinates, from the cursor and its local position */
+	double ox = s->cursor->x - s->seat->pointer_state.sx;
+	double oy = s->cursor->y - s->seat->pointer_state.sy;
+	s->hint_pending = true;
+	s->hint_x = ox + c->current.cursor_hint.x;
+	s->hint_y = oy + c->current.cursor_hint.y;
+}
+
+/* true if the cursor was moved to a queued hint; the caller then reports the motion */
+static bool pointer_hint_apply(struct server *s) {
+	if (!s->hint_pending) {
+		return false;
+	}
+	s->hint_pending = false;
+	wlr_cursor_warp(s->cursor, NULL, s->hint_x, s->hint_y);
+	return true;
+}
+
 static void constraint_gone(struct wl_listener *l, void *data) {
 	struct server *s = wl_container_of(l, s, constraint_gone);
+	if (s->constraint) {
+		pointer_hint_queue(s, s->constraint);
+	}
 	s->constraint = NULL;
 	wl_list_remove(&l->link);
 	wl_list_init(&l->link);
@@ -1756,6 +1790,7 @@ static void pointer_constraint_update(struct server *s, struct wlr_surface *surf
 	}
 	if (s->constraint) {
 		struct wlr_pointer_constraint_v1 *old = s->constraint;
+		pointer_hint_queue(s, old);
 		s->constraint = NULL;
 		wl_list_remove(&s->constraint_gone.link);
 		wl_list_init(&s->constraint_gone.link);
@@ -1868,6 +1903,10 @@ static void cursor_motion(struct wl_listener *l, void *data) {
 		(uint64_t)ev->time_msec * 1000, ev->delta_x, ev->delta_y,
 		ev->unaccel_dx, ev->unaccel_dy);
 	pointer_constraint_update(s, s->seat->pointer_state.focused_surface);
+	if (pointer_hint_apply(s)) {
+		process_motion(s, ev->time_msec);
+		return;
+	}
 	if (pointer_constraint_blocks(s, s->cursor->x + ev->delta_x, s->cursor->y + ev->delta_y)) {
 		return;
 	}
@@ -1879,6 +1918,10 @@ static void cursor_motion_abs(struct wl_listener *l, void *data) {
 	struct server *s = wl_container_of(l, s, cursor_motion_abs);
 	struct wlr_pointer_motion_absolute_event *ev = data;
 	pointer_constraint_update(s, s->seat->pointer_state.focused_surface);
+	if (pointer_hint_apply(s)) {
+		process_motion(s, ev->time_msec);
+		return;
+	}
 	double lx, ly;
 	wlr_cursor_absolute_to_layout_coords(s->cursor, &ev->pointer->base, ev->x, ev->y, &lx, &ly);
 	if (pointer_constraint_blocks(s, lx, ly)) {
