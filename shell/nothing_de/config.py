@@ -82,6 +82,7 @@ DEFAULTS = {
     "photo": "",
     "dnd": False,
     "desktop": {"icons": False},
+    "ontop_apps": [],                # desktop ids whose windows stay above other windows
 }
 
 

@@ -34,6 +34,7 @@
 #include <wlr/types/wlr_data_control_v1.h>
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_export_dmabuf_v1.h>
+#include <wlr/types/wlr_linux_dmabuf_v1.h>
 #include <wlr/types/wlr_ext_data_control_v1.h>
 #include <wlr/types/wlr_ext_image_capture_source_v1.h>
 #include <wlr/types/wlr_ext_image_copy_capture_v1.h>
@@ -46,6 +47,7 @@
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_output_layout.h>
+#include <wlr/types/wlr_pointer_constraints_v1.h>
 #include <wlr/types/wlr_pointer.h>
 #include <wlr/types/wlr_presentation_time.h>
 #include <wlr/types/wlr_primary_selection.h>
@@ -69,6 +71,7 @@
 #include <wlr/util/log.h>
 #include <wlr/xwayland.h>
 #include <xcb/xproto.h>
+#include <math.h>
 
 #define MAX_WS 10
 #define TITLE_H 30
@@ -91,6 +94,8 @@ enum {
 	LYR_BACKGROUND,
 	LYR_BOTTOM,
 	LYR_WINDOWS,
+	/* always-on-top windows: above the other windows, below the bar and the dock */
+	LYR_ONTOP,
 	LYR_TOP,
 	LYR_UNMANAGED,
 	LYR_FULLSCREEN,
@@ -138,7 +143,7 @@ struct view {
 
 	int x, y; /* layout position of the visible window area */
 	int ws;
-	bool mapped, minimized, maximized, fullscreen, placed;
+	bool mapped, minimized, maximized, fullscreen, ontop, placed;
 	enum tile tile;
 	struct wlr_box saved;
 	/* position relative to its output while the output layout changes */
@@ -237,6 +242,7 @@ struct server {
 	struct wlr_xwayland *xwayland;
 	struct wlr_xdg_activation_v1 *activation;
 	struct wlr_relative_pointer_manager_v1 *relative_pointer;
+	struct wlr_pointer_constraints_v1 *pointer_constraints;
 	struct wlr_cursor_shape_manager_v1 *cursor_shape;
 	struct wlr_session_lock_manager_v1 *lock_manager;
 	struct wlr_tablet_manager_v2 *tablet_mgr;
@@ -244,6 +250,9 @@ struct server {
 	struct wlr_cursor *cursor;
 	struct wlr_xcursor_manager *xcursor_mgr;
 	struct wlr_seat *seat;
+	/* the lock or confine of the surface under the pointer, if it asked for one */
+	struct wlr_pointer_constraint_v1 *constraint;
+	struct wl_listener constraint_gone;
 
 	struct wl_list outputs, views, layers_list, keyboards, ipc_clients;
 	int n_touch;
@@ -383,6 +392,19 @@ static struct output *output_at(struct server *s, double x, double y) {
 static struct output *view_output(struct view *v) {
 	struct wlr_box g = view_geometry(v);
 	return output_at(v->server, v->x + g.width / 2.0, v->y + g.height / 2.0);
+}
+
+/* the scene node a window lives in: fullscreen and always-on-top windows leave
+ * their workspace, the others stay in it (only the visible one is enabled) */
+static struct wlr_scene_tree *view_home(struct view *v) {
+	struct server *s = v->server;
+	if (v->fullscreen) {
+		return s->layers[LYR_FULLSCREEN];
+	}
+	if (v->ontop) {
+		return s->layers[LYR_ONTOP];
+	}
+	return s->ws_tree[v->ws];
 }
 
 static void parse_color(const char *hex, float out[4]) {
@@ -667,7 +689,7 @@ static void view_fullscreen(struct view *v, bool on) {
 		view_configure(v, out->full.x, out->full.y, out->full.width, out->full.height);
 	} else {
 		v->fullscreen = false;
-		wlr_scene_node_reparent(&v->tree->node, s->ws_tree[v->ws]);
+		wlr_scene_node_reparent(&v->tree->node, view_home(v));
 		if (v->maximized) {
 			int top = view_top_offset(v);
 			view_configure(v, out->usable.x, out->usable.y + top,
@@ -686,6 +708,16 @@ static void view_fullscreen(struct view *v, bool on) {
 	deco_update(v);
 	view_set_visible(v);
 	schedule_state(s);
+}
+
+static void view_set_ontop(struct view *v, bool on) {
+	if (v->ontop == on) {
+		return;
+	}
+	v->ontop = on;
+	wlr_scene_node_reparent(&v->tree->node, view_home(v));
+	view_set_visible(v);
+	schedule_state(v->server);
 }
 
 static void view_set_visible(struct view *v) {
@@ -744,7 +776,7 @@ static void view_to_workspace(struct view *v, int ws) {
 		return;
 	}
 	v->ws = ws;
-	if (!v->fullscreen) {
+	if (!v->fullscreen && !v->ontop) {
 		wlr_scene_node_reparent(&v->tree->node, s->ws_tree[ws]);
 	}
 	view_set_visible(v);
@@ -760,7 +792,7 @@ static void set_workspace_count(struct server *s, int n) {
 	wl_list_for_each(v, &s->views, link) {
 		if (v->ws >= n) {
 			v->ws = n - 1;
-			if (!v->fullscreen) {
+			if (!v->fullscreen && !v->ontop) {
 				wlr_scene_node_reparent(&v->tree->node, s->ws_tree[v->ws]);
 			}
 		}
@@ -950,10 +982,11 @@ static char *build_state(struct server *s) {
 				wl_client_get_credentials(v->xdg->base->client->client, &pid, NULL, NULL);
 			}
 			fprintf(f, ",\"ws\":%d,\"minimized\":%s,\"maximized\":%s,"
-				"\"fullscreen\":%s,\"x11\":%s,\"taskbar\":%s,\"pid\":%d}",
+				"\"fullscreen\":%s,\"ontop\":%s,\"x11\":%s,\"taskbar\":%s,\"pid\":%d}",
 				v->ws + 1, v->minimized ? "true" : "false",
 				v->maximized ? "true" : "false",
 				v->fullscreen ? "true" : "false",
+				v->ontop ? "true" : "false",
 				v->type == VIEW_X11 ? "true" : "false",
 				view_in_taskbar(v) ? "true" : "false", (int)pid);
 			first = false;
@@ -1090,6 +1123,8 @@ static void ipc_handle(struct ipc_client *c, char *line) {
 		view_maximize(v, !v->maximized);
 	} else if (!strcmp(cmd, "fullscreen") && v) {
 		view_fullscreen(v, !v->fullscreen);
+	} else if (!strcmp(cmd, "ontop") && v && rest) {
+		view_set_ontop(v, strtol(rest, NULL, 10) != 0);
 	} else if (!strcmp(cmd, "geometry") && v && rest) {
 		int gx, gy, gw, gh;
 		if (sscanf(rest, "%d %d %d %d", &gx, &gy, &gw, &gh) == 4 && !v->fullscreen) {
@@ -1700,6 +1735,61 @@ static void hot_corner_update(struct server *s) {
 	s->in_hot_corner = inside;
 }
 
+/* A game locks the pointer (or confines it to a region) while it has focus.
+ * Only one constraint is active at a time: the one of the surface under the
+ * pointer. Relative motion still reaches the client, so the game keeps turning. */
+static void constraint_gone(struct wl_listener *l, void *data) {
+	struct server *s = wl_container_of(l, s, constraint_gone);
+	s->constraint = NULL;
+	wl_list_remove(&l->link);
+	wl_list_init(&l->link);
+}
+
+static void pointer_constraint_update(struct server *s, struct wlr_surface *surface) {
+	struct wlr_pointer_constraint_v1 *want = NULL;
+	if (surface) {
+		want = wlr_pointer_constraints_v1_constraint_for_surface(s->pointer_constraints,
+			surface, s->seat);
+	}
+	if (want == s->constraint) {
+		return;
+	}
+	if (s->constraint) {
+		struct wlr_pointer_constraint_v1 *old = s->constraint;
+		s->constraint = NULL;
+		wl_list_remove(&s->constraint_gone.link);
+		wl_list_init(&s->constraint_gone.link);
+		/* a oneshot constraint may be destroyed by this call */
+		wlr_pointer_constraint_v1_send_deactivated(old);
+	}
+	if (want) {
+		s->constraint = want;
+		wl_signal_add(&want->events.destroy, &s->constraint_gone);
+		wlr_pointer_constraint_v1_send_activated(want);
+	}
+}
+
+/* true if the pointer must not move to layout position (lx, ly) because of the
+ * active constraint */
+static bool pointer_constraint_blocks(struct server *s, double lx, double ly) {
+	struct wlr_pointer_constraint_v1 *c = s->constraint;
+	if (!c) {
+		return false;
+	}
+	if (c->type == WLR_POINTER_CONSTRAINT_V1_LOCKED) {
+		return true;
+	}
+	/* confined: the cursor may only move inside the region the client gave, or
+	 * anywhere on the surface if it gave none. The surface's origin follows from
+	 * the cursor and its surface-local position at the last motion. */
+	double x = s->seat->pointer_state.sx + (lx - s->cursor->x);
+	double y = s->seat->pointer_state.sy + (ly - s->cursor->y);
+	if (!pixman_region32_not_empty(&c->region)) {
+		return x < 0 || y < 0 || x >= c->surface->current.width || y >= c->surface->current.height;
+	}
+	return !pixman_region32_contains_point(&c->region, (int)floor(x), (int)floor(y), NULL);
+}
+
 static void process_motion(struct server *s, uint32_t time) {
 	if (s->drag_icon) {
 		wlr_scene_node_set_position(&s->drag_icon->node, s->cursor->x, s->cursor->y);
@@ -1759,6 +1849,7 @@ static void process_motion(struct server *s, uint32_t time) {
 	struct layer *ly;
 	struct wlr_surface *surface = desktop_at(s, s->cursor->x, s->cursor->y,
 		&sx, &sy, &v, &ly, NULL);
+	pointer_constraint_update(s, surface);
 	if (!surface) {
 		wlr_cursor_set_xcursor(s->cursor, s->xcursor_mgr, "default");
 	}
@@ -1776,6 +1867,10 @@ static void cursor_motion(struct wl_listener *l, void *data) {
 	wlr_relative_pointer_manager_v1_send_relative_motion(s->relative_pointer, s->seat,
 		(uint64_t)ev->time_msec * 1000, ev->delta_x, ev->delta_y,
 		ev->unaccel_dx, ev->unaccel_dy);
+	pointer_constraint_update(s, s->seat->pointer_state.focused_surface);
+	if (pointer_constraint_blocks(s, s->cursor->x + ev->delta_x, s->cursor->y + ev->delta_y)) {
+		return;
+	}
 	wlr_cursor_move(s->cursor, &ev->pointer->base, ev->delta_x, ev->delta_y);
 	process_motion(s, ev->time_msec);
 }
@@ -1783,6 +1878,12 @@ static void cursor_motion(struct wl_listener *l, void *data) {
 static void cursor_motion_abs(struct wl_listener *l, void *data) {
 	struct server *s = wl_container_of(l, s, cursor_motion_abs);
 	struct wlr_pointer_motion_absolute_event *ev = data;
+	pointer_constraint_update(s, s->seat->pointer_state.focused_surface);
+	double lx, ly;
+	wlr_cursor_absolute_to_layout_coords(s->cursor, &ev->pointer->base, ev->x, ev->y, &lx, &ly);
+	if (pointer_constraint_blocks(s, lx, ly)) {
+		return;
+	}
 	wlr_cursor_warp_absolute(s->cursor, &ev->pointer->base, ev->x, ev->y);
 	process_motion(s, ev->time_msec);
 }
@@ -2797,8 +2898,7 @@ static void x11_map(struct wl_listener *l, void *data) {
 	deco_update(v);
 	v->mapped = true;
 	v->ws = s->cur_ws;
-	wlr_scene_node_reparent(&v->tree->node, v->fullscreen ?
-		s->layers[LYR_FULLSCREEN] : s->ws_tree[v->ws]);
+	wlr_scene_node_reparent(&v->tree->node, view_home(v));
 	if (xs->fullscreen) {
 		v->placed = true;
 		view_move(v, xs->x, xs->y);
@@ -3479,6 +3579,10 @@ int main(int argc, char *argv[]) {
 	s.allocator = wlr_allocator_autocreate(s.backend, s.renderer);
 
 	s.compositor = wlr_compositor_create(s.display, 6, s.renderer);
+	/* zero-copy buffers: screen capture (Sunshine's wlgrab) and GPU clients need it */
+	if (!wlr_linux_dmabuf_v1_create_with_renderer(s.display, 4, s.renderer)) {
+		wlr_log(WLR_INFO, "linux-dmabuf not available, clients use shared memory");
+	}
 	wlr_subcompositor_create(s.display);
 	wlr_data_device_manager_create(s.display);
 	wlr_primary_selection_v1_device_manager_create(s.display);
@@ -3548,6 +3652,9 @@ int main(int argc, char *argv[]) {
 	const char *csize = getenv("XCURSOR_SIZE");
 	s.xcursor_mgr = wlr_xcursor_manager_create(ctheme, csize ? atoi(csize) : 24);
 	s.relative_pointer = wlr_relative_pointer_manager_v1_create(s.display);
+	s.pointer_constraints = wlr_pointer_constraints_v1_create(s.display);
+	wl_list_init(&s.constraint_gone.link);
+	s.constraint_gone.notify = constraint_gone;
 	s.cursor_shape = wlr_cursor_shape_manager_v1_create(s.display, 1);
 	s.request_set_shape.notify = request_set_shape;
 	wl_signal_add(&s.cursor_shape->events.request_set_shape, &s.request_set_shape);
