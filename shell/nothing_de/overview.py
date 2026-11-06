@@ -1,9 +1,10 @@
 """Overview (GNOME-like): rauszoomen und alle Fenster als Kacheln sehen.
 
-Wird über die linke obere Ecke oder Super + W geöffnet. Ein Klick
-auf eine Kachel fokussiert das Fenster und schließt den Overview wieder.
+Wird über die linke obere Ecke oder Super + W geöffnet, auf dem Telefon mit einem Wisch
+von der Home-Leiste nach oben. Ein Klick auf eine Kachel fokussiert das Fenster und schließt
+den Overview wieder. Das × auf einer Kachel schließt das Fenster.
 """
-from gi.repository import Gtk, Pango
+from gi.repository import GLib, Gtk, Pango
 
 from . import layer
 from .icons import icon_widget
@@ -36,6 +37,18 @@ class Overview(layer.Overlay):
         self.panel.append(scrolled)
 
     def open_overlay(self):
+        self._populate()
+        super().open_overlay()
+
+    def _populate(self):
+        # phone: the panel takes the screen width, two cards per row
+        narrow = bool(self.shell.phone)
+        self.panel.set_size_request(-1 if narrow else 800, -1 if narrow else 480)
+        self.panel.set_margin_start(16 if narrow else 0)
+        self.panel.set_margin_end(16 if narrow else 0)
+        self.flow.set_min_children_per_line(2)
+        self.flow.set_max_children_per_line(2 if narrow else 4)
+
         windows = [w for w in self.shell.wm.state.get("windows", [])
                    if w.get("taskbar", True)]
         while (c := self.flow.get_first_child()) is not None:
@@ -43,7 +56,6 @@ class Overview(layer.Overlay):
         for w in windows:
             self._tile(w)
         self.empty.set_visible(not windows)
-        super().open_overlay()
 
     def _tile(self, w):
         wid = w["id"]
@@ -59,6 +71,12 @@ class Overview(layer.Overlay):
         title.set_hexpand(True)
         title.set_ellipsize(Pango.EllipsizeMode.END)
         header.append(title)
+        close = Gtk.Button(icon_name="window-close-symbolic")
+        close.add_css_class("flat")
+        close.set_valign(Gtk.Align.START)
+        close.set_tooltip_text("Schließen")
+        close.connect("clicked", lambda _b, i=wid: self._close(i))
+        header.append(close)
         tile.append(header)
 
         app_name = Gtk.Label(
@@ -72,11 +90,21 @@ class Overview(layer.Overlay):
         ws_lbl.add_css_class("n-dim-label")
         tile.append(ws_lbl)
 
-        btn = Gtk.Button(child=tile)
-        btn.add_css_class("flat")
-        btn.connect("clicked", lambda _b, i=wid: self._pick(i))
-        self.flow.append(btn)
+        click = Gtk.GestureClick()
+        click.connect("released", lambda *_: self._pick(wid))
+        tile.add_controller(click)
+        self.flow.append(tile)
 
     def _pick(self, wid):
         self.close_overlay()
         self.shell.wm.focus(wid)
+
+    def _close(self, wid):
+        self.shell.wm.close(wid)
+        # the compositor reports the window gone a moment later
+        GLib.timeout_add(350, self._refresh)
+
+    def _refresh(self):
+        if self.get_visible():
+            self._populate()
+        return False

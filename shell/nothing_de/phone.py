@@ -157,8 +157,12 @@ class PhoneStatus(Gtk.ApplicationWindow):
         self.net_icon.set_tooltip_text(label)
 
 
+SWIPE_UP = 60   # px upwards from the home bar that open the app overview
+
+
 class PhoneNav(Gtk.ApplicationWindow):
-    """Home-Leiste unten. Ein Tipp zeigt den Startbildschirm, dazu werden die Fenster minimiert."""
+    """Home-Leiste unten. Tippen zeigt den Startbildschirm (Fenster minimieren),
+    nach oben wischen öffnet die Übersicht mit den offenen Apps."""
 
     def __init__(self, shell, monitor):
         super().__init__(application=shell.app)
@@ -176,5 +180,12 @@ class PhoneNav(Gtk.ApplicationWindow):
         pill.set_valign(Gtk.Align.CENTER)
         btn.set_child(pill)
         btn.connect("clicked", lambda *_: shell.wm.show_desktop())
+        drag = Gtk.GestureDrag()
+        drag.connect("drag-end", self._on_drag_end)
+        btn.add_controller(drag)
         self.set_child(btn)
-        self.set_size_request(-1, 30)
+        self.set_size_request(-1, 40)
+
+    def _on_drag_end(self, _gesture, _dx, dy):
+        if dy <= -SWIPE_UP:
+            self.shell.run_action("overview")
