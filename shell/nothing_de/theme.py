@@ -57,6 +57,12 @@ def build_css(cfg):
 
 :root {{ --accent-bg-color: {p['accent']}; --accent-color: {p['accent']}; --accent-fg-color: {p['on_accent']}; }}
 window.n-layer, window.n-layer > * {{ background: transparent; }}
+window.n-layer.n-phone-home {{ background: @n_bg; }}
+.n-phone-clock {{ font-size: 72px; font-weight: 300; letter-spacing: -1px; }}
+.n-phone-status {{ font-size: 14px; }}
+.n-home-hit {{ background: transparent; border: none; box-shadow: none; padding: 0;
+  min-width: 140px; min-height: 30px; }}
+.n-home-pill {{ background: @n_fg; border-radius: 999px; min-width: 120px; min-height: 5px; }}
 .n-root {{ color: @n_fg; font-family: "NType 82", "Adwaita Sans", "Inter", sans-serif; }}
 .n-mono, .n-caps {{ font-family: "Space Mono", "Adwaita Mono", "JetBrains Mono", monospace; }}
 .n-caps {{ font-size: 10.5px; letter-spacing: 1.6px; color: @n_muted; }}

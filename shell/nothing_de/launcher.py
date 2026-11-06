@@ -80,6 +80,13 @@ class Launcher(layer.Overlay):
 
     def open_overlay(self):
         self.entry.set_text("")
+        # phone: the panel takes the screen width, four apps per row
+        narrow = bool(self.shell.phone)
+        self.panel.set_size_request(-1 if narrow else 720, -1)
+        self.panel.set_margin_start(16 if narrow else 0)
+        self.panel.set_margin_end(16 if narrow else 0)
+        self.flow.set_min_children_per_line(4 if narrow else 6)
+        self.flow.set_max_children_per_line(4 if narrow else 6)
         self.populate()
         super().open_overlay()
         self.entry.grab_focus()

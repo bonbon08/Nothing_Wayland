@@ -25,6 +25,7 @@ from .notifications import Notifications  # noqa: E402
 from .theme import ThemeManager  # noqa: E402
 from .tray import StatusNotifierWatcher  # noqa: E402
 from .overview import Overview  # noqa: E402
+from .phone import PhoneHome, PhoneNav, PhoneStatus  # noqa: E402
 
 
 class Shell:
@@ -37,6 +38,7 @@ class Shell:
         self.per_monitor = {}
         self.docks = {}
         self._output_names = None
+        self.phone = None          # True: phone layout, False: desktop; set by sync_monitors
         self.launcher = Launcher(self)
         self.control = ControlCenter(self)
         self.notifications = Notifications(self)
@@ -61,9 +63,27 @@ class Shell:
         self.autostart()
 
     # ---------------------------------------------------------- monitors
+    def _phone_form(self, monitor):
+        """Phone layout for a portrait screen. "form" in the config or NOTHING_FORM overrides."""
+        form = os.environ.get("NOTHING_FORM") or self.cfg.get("form") or "auto"
+        if form in ("phone", "desktop"):
+            return form == "phone"
+        geo = monitor.get_geometry()
+        return geo.height > geo.width
+
     def sync_monitors(self):
         monitors = Gdk.Display.get_default().get_monitors()
         current = [monitors.get_item(i) for i in range(monitors.get_n_items())]
+        if current:
+            phone = self._phone_form(current[0])
+            if phone != self.phone:
+                # layout switched (rotation, config): rebuild everything
+                self.phone = phone
+                for mon in list(self.per_monitor):
+                    for win in self.per_monitor.pop(mon):
+                        win.destroy()
+                for mon in list(self.docks):
+                    self.docks.pop(mon).shutdown()
         for mon in list(self.per_monitor):
             if mon not in current:
                 for win in self.per_monitor.pop(mon):
@@ -72,13 +92,17 @@ class Shell:
             if mon in self.per_monitor:
                 continue
             primary = i == 0
-            wins = [DesktopWindow(self, mon, primary), TopBar(self, mon)]
+            if self.phone:
+                wins = [PhoneHome(self, mon), PhoneStatus(self, mon), PhoneNav(self, mon)]
+            else:
+                wins = [DesktopWindow(self, mon, primary), TopBar(self, mon)]
             self.per_monitor[mon] = wins
             for w in wins:
                 w.present()
-        for i, mon in enumerate(current):
-            self.per_monitor[mon][0].set_primary(i == 0)
-        wanted = current if self.cfg.get("dock.all_monitors") else current[:1]
+        if not self.phone:
+            for i, mon in enumerate(current):
+                self.per_monitor[mon][0].set_primary(i == 0)
+        wanted = [] if self.phone else current if self.cfg.get("dock.all_monitors") else current[:1]
         for mon in list(self.docks):
             if mon not in wanted:
                 self.docks.pop(mon).shutdown()
@@ -114,6 +138,8 @@ class Shell:
     def push_outputs(self):
         # display.scale applies to every screen without a value of its own
         default = self.cfg.get("display.scale") or 1.0
+        if self.phone:
+            default = self.cfg.get("phone.scale") or 2.0
         saved = self.cfg.get("outputs") or {}
         for name in {o["name"] for o in self.wm.state.get("outputs", [])} | set(saved):
             out = saved.get(name, {})

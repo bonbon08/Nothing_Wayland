@@ -51,7 +51,9 @@ DEFAULTS = {
     "wallpaper_fit": "cover",        # cover | contain | fill
     "background_color": "#000000",
     "workspaces": 4,
+    "form": "auto",                  # auto (portrait screen = phone) | phone | desktop
     "display": {"scale": 1.0},
+    "phone": {"scale": 2.0},         # screen scale in the phone layout (its own key, see phone.py)
     "terminal": "",
     "files": "",
     "keyboard": {"layout": "us", "variant": "", "options": ""},
