@@ -3782,6 +3782,10 @@ int main(int argc, char *argv[]) {
 		wl_display_destroy(s.display);
 		return 1;
 	}
+	/* The libhybris GL libraries of the phone are loaded now. Xwayland starts later, from this
+	 * process, and its EGL aborts when it inherits their path ("static TLS block"). */
+	unsetenv("LD_LIBRARY_PATH");
+	unsetenv("HYBRIS_LD_LIBRARY_PATH");
 	setenv("WAYLAND_DISPLAY", socket, 1);
 	setenv("XDG_CURRENT_DESKTOP", "Nothing", 0);
 	setenv("XDG_SESSION_TYPE", "wayland", 1);

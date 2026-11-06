@@ -39,6 +39,7 @@ class Shell:
         self.docks = {}
         self._output_names = None
         self.phone = None          # True: phone layout, False: desktop; set by sync_monitors
+        self._fitted = set()       # window ids already maximised on the phone
         self.launcher = Launcher(self)
         self.control = ControlCenter(self)
         self.notifications = Notifications(self)
@@ -60,6 +61,9 @@ class Shell:
         monitors = Gdk.Display.get_default().get_monitors()
         monitors.connect("items-changed", lambda *_: self.sync_monitors())
         self.sync_monitors()
+        if self.phone:
+            # a phone starts locked; the on-screen keyboard types the password
+            GLib.timeout_add_seconds(2, lambda: (self.lockscreen.lock(), False)[1])
         self.autostart()
 
     # ---------------------------------------------------------- monitors
@@ -158,6 +162,19 @@ class Shell:
             self._output_names = names
             self.push_outputs()
         self.sync_ontop()
+        self.phone_fit_windows(state)
+
+    def phone_fit_windows(self, state):
+        """Phone: a new window opens maximised, so it fills the space between the bars
+        (fullscreen would cover the home bar). Once per window, the user can still unmaximise."""
+        if not self.phone:
+            return
+        for w in state.get("windows", []):
+            if w["id"] in self._fitted:
+                continue
+            self._fitted.add(w["id"])
+            if not w.get("maximized") and not w.get("fullscreen"):
+                self.wm.send("maximize", w["id"])
 
     def sync_ontop(self):
         """Bring the always-on-top flag of every window in line with the config.

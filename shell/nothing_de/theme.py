@@ -62,6 +62,9 @@ window.n-layer.n-phone-home {{ background: @n_bg; }}
 .n-phone-status {{ font-size: 14px; }}
 .n-home-hit {{ background: transparent; border: none; box-shadow: none; padding: 0;
   min-width: 140px; min-height: 30px; }}
+.n-key {{ min-width: 30px; min-height: 46px; padding: 0; margin: 0; border-radius: 12px;
+  background: @n_card; color: @n_fg; border: none; box-shadow: none; font-size: 16px; }}
+.n-key:active {{ background: @n_card_hi; }}
 .n-home-pill {{ background: @n_fg; border-radius: 999px; min-width: 120px; min-height: 5px; }}
 .n-root {{ color: @n_fg; font-family: "NType 82", "Adwaita Sans", "Inter", sans-serif; }}
 .n-mono, .n-caps {{ font-family: "Space Mono", "Adwaita Mono", "JetBrains Mono", monospace; }}
@@ -152,7 +155,7 @@ textview.n-notes, textview.n-notes text {{ background: transparent; color: @n_fg
 scale.n-slider:focus-visible, scale.n-slider *:focus-visible {{ outline: none; }}
 scale.n-slider trough {{ outline: none; }}
 .n-app-tile {{ background: transparent; border: none; box-shadow: none; border-radius: 20px; padding: 10px 4px; }}
-.n-app-tile:hover, flowboxchild:selected .n-app-tile {{ background: @n_card_hi; }}
+.n-app-tile:hover, flowboxchild:selected .n-app-tile, .n-app-tile.pressed {{ background: @n_card_hi; }}
 flowboxchild {{ background: transparent; padding: 0; border-radius: 20px; }}
 flowboxchild:selected {{ background: transparent; }}
 .n-app-tile label {{ font-size: 11.5px; }}

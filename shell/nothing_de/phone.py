@@ -81,6 +81,12 @@ class PhoneHome(Gtk.ApplicationWindow):
             tile.append(icon_widget(app, 52, self.shell.cfg))
             tile.append(Gtk.Label(label=app.get_display_name(), ellipsize=Pango.EllipsizeMode.END,
                                   max_width_chars=9, justify=Gtk.Justification.CENTER))
+            # lights up while the finger is on it (touch has no hover)
+            press = Gtk.GestureClick()
+            press.connect("pressed", lambda *_, t=tile: t.add_css_class("pressed"))
+            press.connect("released", lambda *_, t=tile: t.remove_css_class("pressed"))
+            press.connect("cancel", lambda *_, t=tile: t.remove_css_class("pressed"))
+            tile.add_controller(press)
             child = Gtk.FlowBoxChild(child=tile)
             child.app = app
             self.flow.append(child)
@@ -157,7 +163,8 @@ class PhoneStatus(Gtk.ApplicationWindow):
         self.net_icon.set_tooltip_text(label)
 
 
-SWIPE_UP = 60   # px upwards from the home bar that open the app overview
+SWIPE_HOME = 60       # px upwards on the home bar: home screen
+SWIPE_OVERVIEW = 220  # px upwards on the home bar: app overview
 
 
 class PhoneNav(Gtk.ApplicationWindow):
@@ -180,12 +187,16 @@ class PhoneNav(Gtk.ApplicationWindow):
         pill.set_valign(Gtk.Align.CENTER)
         btn.set_child(pill)
         btn.connect("clicked", lambda *_: shell.wm.show_desktop())
-        drag = Gtk.GestureDrag()
-        drag.connect("drag-end", self._on_drag_end)
-        btn.add_controller(drag)
         self.set_child(btn)
         self.set_size_request(-1, 40)
+        # on the window, in the capture phase: the button would otherwise take the touch
+        drag = Gtk.GestureDrag()
+        drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        drag.connect("drag-end", self._on_drag_end)
+        self.add_controller(drag)
 
     def _on_drag_end(self, _gesture, _dx, dy):
-        if dy <= -SWIPE_UP:
+        if dy <= -SWIPE_OVERVIEW:
             self.shell.run_action("overview")
+        elif dy <= -SWIPE_HOME:
+            self.shell.wm.show_desktop()

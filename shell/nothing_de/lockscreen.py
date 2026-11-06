@@ -34,6 +34,39 @@ def check_password(user, password):
         return False
 
 
+KEY_ROWS = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", "!@#$%&*?-_.,/"]
+
+
+def _on_screen_keyboard(entry):
+    """Keys that type into the password entry; ⌫ deletes, ↵ submits."""
+    board = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, halign=Gtk.Align.CENTER)
+    board.set_margin_top(18)
+
+    def press(label, action):
+        key = Gtk.Button(label=label)
+        key.add_css_class("n-key")
+        key.set_focusable(False)
+        key.connect("clicked", lambda *_: action())
+        return key
+
+    def typed(ch):
+        return lambda: entry.set_text(entry.get_text() + ch)
+
+    for row in KEY_ROWS:
+        line = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        for ch in row:
+            line.append(press(ch, typed(ch)))
+        board.append(line)
+    bottom = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+    bottom.append(press("⌫", lambda: entry.set_text(entry.get_text()[:-1])))
+    space = press("␣", typed(" "))
+    space.set_size_request(180, -1)
+    bottom.append(space)
+    bottom.append(press("↵", lambda: entry.emit("activate")))
+    board.append(bottom)
+    return board
+
+
 class LockScreen:
     def __init__(self, shell):
         self.shell = shell
@@ -97,6 +130,9 @@ class LockScreen:
         status.add_css_class("n-accent-text")
         for w in (day, clock, user, entry, status):
             box.append(w)
+        if self.shell.phone:
+            # no hardware keyboard on the phone: type the password on screen
+            box.append(_on_screen_keyboard(entry))
         win.set_child(box)
 
         def tick():
