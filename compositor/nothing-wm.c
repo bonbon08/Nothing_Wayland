@@ -259,6 +259,7 @@ struct server {
 
 	struct wl_list outputs, views, layers_list, keyboards, ipc_clients;
 	int n_touch;
+	int n_pointer;
 	struct touch_point touch_points[MAX_TOUCH_POINTS];
 	float out_scale;
 
@@ -1574,6 +1575,16 @@ static void new_keyboard(struct server *s, struct wlr_input_device *dev) {
 	wlr_seat_set_keyboard(s->seat, wk);
 }
 
+/* The default cursor, or none without a mouse or touchpad: a touchscreen-only phone
+ * must not show a pointer. */
+static void cursor_show_default(struct server *s) {
+	if (s->n_pointer == 0) {
+		wlr_cursor_set_surface(s->cursor, NULL, 0, 0);
+		return;
+	}
+	wlr_cursor_set_xcursor(s->cursor, s->xcursor_mgr, "default");
+}
+
 static void server_new_input(struct wl_listener *l, void *data) {
 	struct server *s = wl_container_of(l, s, new_input);
 	struct wlr_input_device *dev = data;
@@ -1583,6 +1594,8 @@ static void server_new_input(struct wl_listener *l, void *data) {
 		break;
 	case WLR_INPUT_DEVICE_POINTER:
 		wlr_cursor_attach_input_device(s->cursor, dev);
+		s->n_pointer++;
+		cursor_show_default(s);
 		break;
 	case WLR_INPUT_DEVICE_TOUCH:
 		wlr_cursor_attach_input_device(s->cursor, dev);
@@ -1886,7 +1899,7 @@ static void process_motion(struct server *s, uint32_t time) {
 		&sx, &sy, &v, &ly, NULL);
 	pointer_constraint_update(s, surface);
 	if (!surface) {
-		wlr_cursor_set_xcursor(s->cursor, s->xcursor_mgr, "default");
+		cursor_show_default(s);
 	}
 	if (surface) {
 		wlr_seat_pointer_notify_enter(s->seat, surface, sx, sy);
@@ -3776,7 +3789,7 @@ int main(int argc, char *argv[]) {
 	snprintf(pidbuf, sizeof(pidbuf), "%d", (int)getpid());
 	setenv("NOTHING_WM_PID", pidbuf, 1);
 	ipc_init(&s, socket);
-	wlr_cursor_set_xcursor(s.cursor, s.xcursor_mgr, "default");
+	cursor_show_default(&s);
 
 	if (startup) {
 		spawn(startup);
