@@ -13,6 +13,7 @@ import gi
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from . import dotmatrix
+from .phone_extras import power_menu_box
 from .widgets import MONTHS, WEEKDAYS
 
 try:
@@ -117,6 +118,29 @@ class LockScreen:
         self.user = getpass.getuser()
         self.logind = Logind(self.lock, self.unlock)
 
+    def show_power_menu(self):
+        """Long press on the power key while locked: the menu shows on the lock screen."""
+        for win in self.windows:
+            if getattr(win, "n_power", None) is not None:
+                continue
+            scrim = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.FILL,
+                            halign=Gtk.Align.FILL)
+            scrim.add_css_class("n-scrim")
+            scrim.add_css_class("dim")
+            menu = power_menu_box(lambda w=win: self._close_power_menu(w))
+            menu.set_valign(Gtk.Align.CENTER)
+            menu.set_vexpand(True)
+            menu.set_margin_start(24)
+            menu.set_margin_end(24)
+            scrim.append(menu)
+            win.n_overlay.add_overlay(scrim)
+            win.n_power = scrim
+
+    def _close_power_menu(self, win):
+        if getattr(win, "n_power", None) is not None:
+            win.n_overlay.remove_overlay(win.n_power)
+            win.n_power = None
+
     def unlock(self):
         """Unlock without a password (logind's Unlock, after a fingerprint match)."""
         if self.instance is not None:
@@ -191,7 +215,10 @@ class LockScreen:
             box.set_margin_bottom(28)
             entry.set_size_request(300, -1)
             box.append(_on_screen_keyboard(entry))
-        win.set_child(box)
+        overlay = Gtk.Overlay(child=box)
+        win.n_overlay = overlay
+        win.n_power = None
+        win.set_child(overlay)
 
         def tick():
             if win not in self.windows:

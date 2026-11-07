@@ -232,6 +232,14 @@ struct lock_surface {
 /* a touch point stays glued to the surface it went down on; we remember
  * that surface's origin in layout coordinates so later motion events can
  * be translated into coordinates local to it */
+/* a touchscreen: mapped to the built-in screen, so its touches turn with that screen */
+struct touch_dev {
+	struct wl_list link;
+	struct server *server;
+	struct wlr_input_device *dev;
+	struct wl_listener destroy;
+};
+
 struct touch_point {
 	bool active;
 	int32_t id;
@@ -276,6 +284,7 @@ struct server {
 	struct wl_list outputs, views, layers_list, keyboards, ipc_clients;
 	int n_touch;
 	int n_pointer;
+	struct wl_list touch_devs;
 	struct touch_point touch_points[MAX_TOUCH_POINTS];
 	float out_scale;
 
@@ -316,6 +325,9 @@ struct server {
 	int blank_timeout; /* seconds without input until the screen goes off, 0 = never */
 	struct wl_event_source *blank_timer;
 	struct wlr_idle_notifier_v1 *idle_notifier;
+	/* power key: a short press switches the screen, a long one asks for the power menu */
+	bool power_held, power_long;
+	struct wl_event_source *power_timer;
 	struct wlr_idle_inhibit_manager_v1 *idle_inhibit;
 
 	/* on-screen keyboard: text fields (text-input-v3) <-> input method (squeekboard) */
@@ -362,6 +374,8 @@ static void dock_touch(struct server *s, double lx, double ly, struct layer *hit
 static void output_set_position(struct output *out, int x, int y);
 static void set_blank(struct server *s, bool on);
 static void activity(struct server *s);
+static void output_set_transform(struct output *out, int degrees);
+static void map_touch_devices(struct server *s);
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
@@ -387,6 +401,16 @@ static void spawn(const char *cmd) {
 		_exit(0);
 	} else if (pid > 0) {
 		waitpid(pid, NULL, 0);
+	}
+}
+
+/* rotation in degrees (clockwise, as wl_output counts) <-> wl_output_transform */
+static int transform_degrees(enum wl_output_transform t) {
+	switch (t) {
+	case WL_OUTPUT_TRANSFORM_90: return 90;
+	case WL_OUTPUT_TRANSFORM_180: return 180;
+	case WL_OUTPUT_TRANSFORM_270: return 270;
+	default: return 0;
 	}
 }
 
@@ -1046,8 +1070,10 @@ static char *build_state(struct server *s) {
 		fprintf(f, ",\"description\":");
 		json_escape(f, wo->description ? wo->description : "");
 		wlr_output_layout_get_box(s->output_layout, wo, &box);
-		fprintf(f, ",\"x\":%d,\"y\":%d,\"width\":%d,\"height\":%d,\"scale\":%.3f,\"enabled\":%s}",
-			box.x, box.y, wo->width, wo->height, out->scale, out->enabled ? "true" : "false");
+		fprintf(f, ",\"x\":%d,\"y\":%d,\"width\":%d,\"height\":%d,\"scale\":%.3f,"
+			"\"transform\":%d,\"enabled\":%s}",
+			box.x, box.y, wo->width, wo->height, out->scale, transform_degrees(wo->transform),
+			out->enabled ? "true" : "false");
 		first = false;
 	}
 	fprintf(f, "]}\n");
@@ -1322,6 +1348,11 @@ static void ipc_handle(struct ipc_client *c, char *line) {
 				if (sscanf(rest + strlen(key), " %d", &val) == 1) {
 					output_set_enabled(out, val != 0);
 				}
+			} else if (!strcmp(key, "transform")) {
+				int deg;
+				if (sscanf(rest + strlen(key), " %d", &deg) == 1) {
+					output_set_transform(out, deg);
+				}
 			} else if (!strcmp(key, "position")) {
 				int x, y;
 				if (sscanf(rest + strlen(key), " %d %d", &x, &y) == 2) {
@@ -1476,6 +1507,13 @@ static void cycle_end(struct server *s) {
 /* media / volume / brightness keys: without the Super modifier, also on the lock screen
  * and with the screen off */
 static bool handle_media_key(struct server *s, xkb_keysym_t sym) {
+	/* the shell shows the new level (on-screen display) */
+	if (sym == XKB_KEY_XF86AudioRaiseVolume || sym == XKB_KEY_XF86AudioLowerVolume ||
+			sym == XKB_KEY_XF86AudioMute) {
+		send_action(s, "osd_volume");
+	} else if (sym == XKB_KEY_XF86MonBrightnessUp || sym == XKB_KEY_XF86MonBrightnessDown) {
+		send_action(s, "osd_brightness");
+	}
 	if (sym == XKB_KEY_XF86AudioRaiseVolume) {
 		spawn("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+ || pactl set-sink-volume @DEFAULT_SINK@ +5%");
 		return true;
@@ -1524,11 +1562,6 @@ static bool handle_keybinding(struct server *s, xkb_keysym_t sym, uint32_t mods)
 		if (s->session) {
 			wlr_session_change_vt(s->session, sym - XKB_KEY_XF86Switch_VT_1 + 1);
 		}
-		return true;
-	}
-	/* power key (phones): screen off and on */
-	if (sym == XKB_KEY_XF86PowerOff) {
-		set_blank(s, !s->blanked);
 		return true;
 	}
 	if (handle_media_key(s, sym)) {
@@ -1649,6 +1682,34 @@ static bool handle_keybinding(struct server *s, xkb_keysym_t sym, uint32_t mods)
 	return false;
 }
 
+#define POWER_LONG_MS 600
+
+static int power_timer_cb(void *data) {
+	struct server *s = data;
+	s->power_long = true;
+	set_blank(s, false);
+	send_action(s, "power_menu");
+	return 0;
+}
+
+/* power key (phones): short press = screen off/on, held = power menu */
+static void power_key(struct server *s, bool pressed) {
+	if (pressed) {
+		s->power_held = true;
+		s->power_long = false;
+		wl_event_source_timer_update(s->power_timer, POWER_LONG_MS);
+		return;
+	}
+	if (!s->power_held) {
+		return;
+	}
+	s->power_held = false;
+	wl_event_source_timer_update(s->power_timer, 0);
+	if (!s->power_long) {
+		set_blank(s, !s->blanked);
+	}
+}
+
 static void keyboard_modifiers(struct wl_listener *l, void *data) {
 	struct keyboard *k = wl_container_of(l, k, modifiers);
 	wlr_seat_set_keyboard(k->server->seat, k->wlr_keyboard);
@@ -1668,6 +1729,12 @@ static void keyboard_key(struct wl_listener *l, void *data) {
 	uint32_t mods = wlr_keyboard_get_modifiers(k->wlr_keyboard);
 	bool handled = false;
 	activity(s);
+	for (int i = 0; i < nsyms; i++) {
+		if (syms[i] == XKB_KEY_XF86PowerOff) {
+			power_key(s, ev->state == WL_KEYBOARD_KEY_STATE_PRESSED);
+			return;
+		}
+	}
 	if (ev->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 		for (int i = 0; i < nsyms; i++) {
 			handled = handle_keybinding(s, syms[i], mods);
@@ -1727,6 +1794,35 @@ static void cursor_show_default(struct server *s) {
 	wlr_cursor_set_xcursor(s->cursor, s->xcursor_mgr, "default");
 }
 
+static void touch_dev_destroy(struct wl_listener *l, void *data) {
+	struct touch_dev *td = wl_container_of(l, td, destroy);
+	td->server->n_touch--;
+	wl_list_remove(&td->destroy.link);
+	wl_list_remove(&td->link);
+	free(td);
+}
+
+/* Touchscreens belong to the built-in panel (like phoc: DSI, eDP, LVDS, DPI). Mapped, wlroots
+ * turns their coordinates with the panel's rotation. */
+static void map_touch_devices(struct server *s) {
+	struct output *o, *builtin = NULL;
+	wl_list_for_each(o, &s->outputs, link) {
+		const char *n = o->wlr_output->name;
+		if (!strncmp(n, "DSI-", 4) || !strncmp(n, "eDP-", 4) || !strncmp(n, "LVDS-", 5) ||
+				!strncmp(n, "DPI-", 4)) {
+			builtin = o;
+			break;
+		}
+	}
+	if (!builtin) {
+		return;
+	}
+	struct touch_dev *td;
+	wl_list_for_each(td, &s->touch_devs, link) {
+		wlr_cursor_map_input_to_output(s->cursor, td->dev, builtin->wlr_output);
+	}
+}
+
 static void server_new_input(struct wl_listener *l, void *data) {
 	struct server *s = wl_container_of(l, s, new_input);
 	struct wlr_input_device *dev = data;
@@ -1739,10 +1835,18 @@ static void server_new_input(struct wl_listener *l, void *data) {
 		s->n_pointer++;
 		cursor_show_default(s);
 		break;
-	case WLR_INPUT_DEVICE_TOUCH:
+	case WLR_INPUT_DEVICE_TOUCH: {
 		wlr_cursor_attach_input_device(s->cursor, dev);
 		s->n_touch++;
+		struct touch_dev *td = calloc(1, sizeof(*td));
+		td->server = s;
+		td->dev = dev;
+		td->destroy.notify = touch_dev_destroy;
+		wl_signal_add(&dev->events.destroy, &td->destroy);
+		wl_list_insert(&s->touch_devs, &td->link);
+		map_touch_devices(s);
 		break;
+	}
 	case WLR_INPUT_DEVICE_TABLET: {
 		wlr_cursor_attach_input_device(s->cursor, dev);
 		struct wlr_tablet *tablet = wlr_tablet_from_input_device(dev);
@@ -2215,7 +2319,8 @@ static void cursor_frame(struct wl_listener *l, void *data) {
 static void seat_request_cursor(struct wl_listener *l, void *data) {
 	struct server *s = wl_container_of(l, s, request_cursor);
 	struct wlr_seat_pointer_request_set_cursor_event *ev = data;
-	if (s->seat->pointer_state.focused_client == ev->seat_client) {
+	/* touchscreen only (phone): no pointer, whatever the apps ask for */
+	if (s->n_pointer > 0 && s->seat->pointer_state.focused_client == ev->seat_client) {
 		wlr_cursor_set_surface(s->cursor, ev->surface, ev->hotspot_x, ev->hotspot_y);
 	}
 }
@@ -2223,7 +2328,7 @@ static void seat_request_cursor(struct wl_listener *l, void *data) {
 static void request_set_shape(struct wl_listener *l, void *data) {
 	struct server *s = wl_container_of(l, s, request_set_shape);
 	struct wlr_cursor_shape_manager_v1_request_set_shape_event *ev = data;
-	if (s->seat->pointer_state.focused_client == ev->seat_client) {
+	if (s->n_pointer > 0 && s->seat->pointer_state.focused_client == ev->seat_client) {
 		wlr_cursor_set_xcursor(s->cursor, s->xcursor_mgr, wlr_cursor_shape_v1_name(ev->shape));
 	}
 }
@@ -3836,6 +3941,39 @@ static void output_set_scale(struct output *out, float scale) {
 	schedule_state(s);
 }
 
+/* rotate a screen (phone turned on its side); the touchscreen mapped to it turns with it */
+static void output_set_transform(struct output *out, int degrees) {
+	struct server *s = out->server;
+	enum wl_output_transform t = degrees == 90 ? WL_OUTPUT_TRANSFORM_90 :
+		degrees == 180 ? WL_OUTPUT_TRANSFORM_180 :
+		degrees == 270 ? WL_OUTPUT_TRANSFORM_270 : WL_OUTPUT_TRANSFORM_NORMAL;
+	if (out->wlr_output->transform == t) {
+		return;
+	}
+	views_remember_outputs(s);
+	struct wlr_output_state st;
+	wlr_output_state_init(&st);
+	wlr_output_state_set_transform(&st, t);
+	if (!wlr_output_commit_state(out->wlr_output, &st)) {
+		wlr_log(WLR_ERROR, "%s: rotation by %d degrees not supported",
+			out->wlr_output->name, degrees);
+	}
+	wlr_output_state_finish(&st);
+	update_output_boxes(s);
+	views_restore_outputs(s);
+	if (s->lock) {
+		/* the lock screen takes the new shape of the screen */
+		struct wlr_session_lock_surface_v1 *ls;
+		wl_list_for_each(ls, &s->lock->surfaces, link) {
+			if (ls->output == out->wlr_output) {
+				wlr_session_lock_surface_v1_configure(ls, out->full.width, out->full.height);
+			}
+		}
+	}
+	process_motion(s, 0);
+	schedule_state(s);
+}
+
 static void output_frame(struct wl_listener *l, void *data) {
 	struct output *out = wl_container_of(l, out, frame);
 	if (!out->enabled || out->server->blanked) {
@@ -3925,6 +4063,7 @@ static void server_new_output(struct wl_listener *l, void *data) {
 
 	output_attach(out);
 	update_output_boxes(s);
+	map_touch_devices(s);
 	schedule_state(s);
 
 	if (s->locked && s->lock) {
@@ -3964,6 +4103,7 @@ int main(int argc, char *argv[]) {
 	wl_list_init(&s.keyboards);
 	wl_list_init(&s.ipc_clients);
 	wl_list_init(&s.text_inputs);
+	wl_list_init(&s.touch_devs);
 	const char *xl = getenv("XKB_DEFAULT_LAYOUT");
 	if (xl) snprintf(s.kb_layout, sizeof(s.kb_layout), "%s", xl);
 	const char *xv = getenv("XKB_DEFAULT_VARIANT");
@@ -4007,6 +4147,7 @@ int main(int argc, char *argv[]) {
 	s.idle_notifier = wlr_idle_notifier_v1_create(s.display);
 	s.idle_inhibit = wlr_idle_inhibit_v1_create(s.display);
 	s.blank_timer = wl_event_loop_add_timer(s.loop, blank_timer_cb, &s);
+	s.power_timer = wl_event_loop_add_timer(s.loop, power_timer_cb, &s);
 	wlr_server_decoration_manager_set_default_mode(
 		wlr_server_decoration_manager_create(s.display),
 		WLR_SERVER_DECORATION_MANAGER_MODE_CLIENT);

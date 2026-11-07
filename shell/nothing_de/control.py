@@ -54,6 +54,10 @@ class ControlCenter(layer.Overlay):
         grid.attach(self.bt, 1, 0, 1, 1)
         grid.attach(self.dark, 0, 1, 1, 1)
         grid.attach(self.dnd, 1, 1, 1, 1)
+        # phone only: turn the screen with the phone
+        self.rotate = Tile("object-rotate-right-symbolic", "Drehen",
+                           lambda on: self.cfg.set("phone.auto_rotate", on))
+        grid.attach(self.rotate, 0, 2, 1, 1)
         self.panel.append(grid)
 
         # Bluetooth-Geräte (Quick Connect)
@@ -225,6 +229,10 @@ class ControlCenter(layer.Overlay):
         self.wifi.set_state(on, sub)
         self.dark.set_state(self.cfg.get("theme") != "light")
         self.dnd.set_state(self.cfg.get("dnd"))
+        rot = self.shell.rotation
+        self.rotate.set_visible(bool(self.shell.phone and rot and rot.available))
+        self.rotate.set_state(self.cfg.get("phone.auto_rotate", True),
+                              None if self.cfg.get("phone.auto_rotate", True) else "GESPERRT")
         self._refresh_bt()
         self._refresh_volume()
         b = system.get_brightness()

@@ -26,6 +26,7 @@ from .theme import ThemeManager  # noqa: E402
 from .tray import StatusNotifierWatcher  # noqa: E402
 from .overview import Overview  # noqa: E402
 from .phone import PhoneHome, PhoneNav, PhoneStatus  # noqa: E402
+from .phone_extras import Osd, PowerMenu, Rotation  # noqa: E402
 
 
 class Shell:
@@ -49,6 +50,9 @@ class Shell:
         self.tray_watcher = StatusNotifierWatcher()
         self.tray_watcher.start()
         self.overview = Overview(self)
+        self.osd = Osd(self)
+        self.power_menu = PowerMenu(self)
+        self.rotation = None       # phone: automatic rotation (phone_session_start)
 
         self.wm.connect("action", lambda _w, name: self.run_action(name))
         self.wm.connect("connected", lambda *_: self.push_wm_config())
@@ -86,6 +90,8 @@ class Shell:
         else:
             self._relock_pending = True
         self.start_osk(restart=first)
+        self.rotation = Rotation(self)
+        self.cfg.connect("changed", lambda *_: self.rotation.apply())
 
     def start_osk(self, restart=False):
         """On-screen keyboard for the apps: squeekboard (input-method protocol). It shows
@@ -104,7 +110,7 @@ class Shell:
                "mobi.phosh.OSK.service"])
 
     def close_overlays(self):
-        for overlay in (self.launcher, self.control, self.overview):
+        for overlay in (self.launcher, self.control, self.overview, self.power_menu):
             overlay.close_overlay()
 
     # ---------------------------------------------------------- monitors
@@ -113,6 +119,9 @@ class Shell:
         form = os.environ.get("NOTHING_FORM") or self.cfg.get("form") or "auto"
         if form in ("phone", "desktop"):
             return form == "phone"
+        # a phone turned on its side stays a phone
+        if self.rotation and self.rotation.rotated:
+            return True
         geo = monitor.get_geometry()
         return geo.height > geo.width
 
@@ -124,7 +133,7 @@ class Shell:
             if phone != self.phone:
                 # layout switched (rotation, config): rebuild everything
                 self.phone = phone
-                for overlay in (self.launcher, self.control, self.overview):
+                for overlay in (self.launcher, self.control, self.overview, self.power_menu):
                     overlay.respect_bars(phone)
                 self.push_wm_config()
                 for mon in list(self.per_monitor):
@@ -207,6 +216,10 @@ class Shell:
             self._relock_pending = False
             if state.get("locked"):
                 self.lockscreen.lock()
+        if self.rotation and state.get("locked") != getattr(self, "_was_locked", None):
+            # the lock screen stands upright, unlocking turns back to the sensor's direction
+            self._was_locked = state.get("locked")
+            self.rotation.apply()
         # a screen was plugged in: its saved settings apply now
         names = {o["name"] for o in state.get("outputs", [])}
         if names != self._output_names:
@@ -275,6 +288,16 @@ class Shell:
             self.spawn_settings()
         elif name == "lock":
             self.lockscreen.lock()
+        elif name == "osd_volume":
+            self.osd.volume()
+        elif name == "osd_brightness":
+            self.osd.brightness()
+        elif name == "power_menu":
+            if self.lockscreen.instance is not None:
+                self.lockscreen.show_power_menu()
+            else:
+                self.close_overlays()
+                self.power_menu.open_overlay()
         elif name == "screen_off":
             # power key or timeout: a phone locks with the screen
             self.close_overlays()

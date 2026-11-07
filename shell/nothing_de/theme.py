@@ -68,6 +68,16 @@ window.n-layer.n-phone-home {{ background: @n_bg; }}
 .n-key.n-key-accent {{ background: @n_accent; color: @n_on_accent; }}
 .n-phone-search {{ background: @n_card; color: alpha(@n_fg, 0.7); border: none; box-shadow: none;
   border-radius: 999px; padding: 12px 18px; }}
+.n-osd {{ background: @n_surface; color: @n_fg; border-radius: 999px; padding: 12px 20px;
+  border: 1px solid alpha(@n_fg, 0.12); box-shadow: 0 4px 16px rgba(0,0,0,0.35); }}
+levelbar.n-osd-bar trough {{ min-height: 6px; border-radius: 99px; background: alpha(@n_fg, 0.15);
+  border: none; }}
+levelbar.n-osd-bar block.filled {{ background: @n_fg; border-radius: 99px; border: none; }}
+levelbar.n-osd-bar block.empty {{ background: transparent; border: none; }}
+.n-power-menu {{ background: @n_surface; border-radius: 28px; padding: 18px; }}
+.n-power-item {{ background: @n_card; color: @n_fg; border: none; box-shadow: none;
+  border-radius: 18px; padding: 16px 18px; font-size: 16px; }}
+.n-power-item:active {{ background: @n_card_hi; }}
 .n-pill-button {{ background: @n_card_hi; color: @n_fg; border: none; box-shadow: none;
   border-radius: 999px; padding: 10px 24px; }}
 .n-home-pill {{ background: @n_fg; border-radius: 999px; min-width: 120px; min-height: 5px; }}

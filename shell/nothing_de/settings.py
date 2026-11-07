@@ -35,6 +35,26 @@ PAGES = [
     ("about", "Info", "help-about-symbolic"),
 ]
 
+# phone layout: an own page first, without the desktop-only pages (widgets, dock, workspaces)
+PHONE_PAGES = [("phone", "Telefon", "phone-symbolic")] + \
+    [p for p in PAGES if p[0] not in ("widgets", "dock", "workspaces")]
+
+PHONE = False   # set in main(): the shell shows its phone layout
+
+
+def is_phone(cfg):
+    """Same rule as the shell: "form" (or NOTHING_FORM) decides, otherwise an upright or
+    narrow screen."""
+    form = os.environ.get("NOTHING_FORM") or cfg.get("form") or "auto"
+    if form in ("phone", "desktop"):
+        return form == "phone"
+    display = Gdk.Display.get_default()
+    monitors = display.get_monitors() if display else None
+    if not monitors or monitors.get_n_items() == 0:
+        return False
+    geo = monitors.get_item(0).get_geometry()
+    return geo.height > geo.width or geo.width < 700
+
 
 def css_for(widget, css):
     prov = Gtk.CssProvider()
@@ -80,7 +100,10 @@ class AppearancePage:
 
         g = group("Kontrastfarbe", "Wird für Hervorhebungen, aktive Schalter und Punkte verwendet.")
         row = Adw.PreferencesRow(activatable=False)
-        box = Gtk.Box(spacing=10, margin_top=14, margin_bottom=14, margin_start=14, margin_end=14)
+        # wraps on narrow screens (phone)
+        box = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, column_spacing=10, row_spacing=10,
+                          max_children_per_line=12, min_children_per_line=5,
+                          margin_top=14, margin_bottom=14, margin_start=14, margin_end=14)
         self.swatches = []
         for name, hx in ACCENTS:
             b = Gtk.Button(tooltip_text=name)
@@ -92,8 +115,6 @@ class AppearancePage:
             b.connect("clicked", lambda _b, hx=hx: self.set_accent(hx))
             self.swatches.append(b)
             box.append(b)
-        spacer = Gtk.Box(hexpand=True)
-        box.append(spacer)
         self.color_btn = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(title="Eigene Farbe", with_alpha=False),
                                                tooltip_text="Eigene Farbe", valign=Gtk.Align.CENTER)
         rgba = Gdk.RGBA()
@@ -107,6 +128,8 @@ class AppearancePage:
 
         g = group("Anzeige", "Für sehr hochauflösende Bildschirme, auf denen alles winzig wirkt. "
                        "Unter „Bildschirme“ lässt sich jeder einzeln einstellen, das hat Vorrang.")
+        # the phone has its own scale on the "Telefon" page
+        g.set_visible(not PHONE)
         self._scales = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
         self.scale_row = Adw.ComboRow(
             title="Skalierung",
@@ -117,6 +140,8 @@ class AppearancePage:
         self.widget.add(g)
 
         g = group("Hintergrundbild")
+        # the phone's home screen has no wallpaper
+        g.set_visible(not PHONE)
         self.preview = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, height_request=200,
                                    can_shrink=True)
         self.preview.add_css_class("card")
@@ -995,6 +1020,76 @@ class AboutPage:
 
 
 # ======================================================================
+class PhonePage:
+    """Telefon: Bildschirm-Timeout, Drehen, Skalierung, Bildschirmtastatur, Ansicht."""
+
+    TIMEOUTS = [(30, "30 Sekunden"), (60, "1 Minute"), (120, "2 Minuten"), (300, "5 Minuten"),
+                (600, "10 Minuten"), (0, "Nie")]
+    SCALES = [1.5, 1.75, 2.0, 2.25, 2.5, 3.0]
+    FORMS = [("auto", "Automatisch"), ("phone", "Telefon"), ("desktop", "Desktop")]
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.widget = page("Telefon")
+
+        g = group("Bildschirm")
+        self.timeout = Adw.ComboRow(title="Bildschirm aus nach",
+                                    subtitle="Danach sperrt das Telefon",
+                                    model=Gtk.StringList.new([t[1] for t in self.TIMEOUTS]))
+        self.timeout.connect("notify::selected", lambda r, _p: cfg.set(
+            "phone.screen_timeout", self.TIMEOUTS[r.get_selected()][0]))
+        g.add(self.timeout)
+        self.rotate = Adw.SwitchRow(title="Automatisch drehen",
+                                    subtitle="Der Bildschirm dreht sich mit dem Telefon")
+        self.rotate.connect("notify::active",
+                            lambda r, _p: cfg.set("phone.auto_rotate", r.get_active()))
+        g.add(self.rotate)
+        self.scale = Adw.ComboRow(title="Größe der Anzeige",
+                                  model=Gtk.StringList.new([f"{int(x * 100)} %" for x in self.SCALES]))
+        self.scale.connect("notify::selected",
+                           lambda r, _p: cfg.set("phone.scale", self.SCALES[r.get_selected()]))
+        g.add(self.scale)
+        self.widget.add(g)
+
+        g = group("Eingabe")
+        self.osk = Adw.SwitchRow(title="Bildschirmtastatur",
+                                 subtitle="Erscheint, sobald ein Textfeld ausgewählt ist")
+        self.a11y = None
+        try:
+            self.a11y = Gio.Settings.new("org.gnome.desktop.a11y.applications")
+            self.a11y.bind("screen-keyboard-enabled", self.osk, "active",
+                           Gio.SettingsBindFlags.DEFAULT)
+        except (TypeError, GLib.Error):
+            self.osk.set_sensitive(False)
+        g.add(self.osk)
+        self.widget.add(g)
+
+        g = group("Ansicht", "„Automatisch“ nimmt die Telefon-Ansicht für hochkante Bildschirme. "
+                             "„Desktop“ zeigt Leiste und Dock, etwa mit externem Monitor.")
+        self.form = Adw.ComboRow(title="Oberfläche",
+                                 model=Gtk.StringList.new([f[1] for f in self.FORMS]))
+        self.form.connect("notify::selected",
+                          lambda r, _p: cfg.set("form", self.FORMS[r.get_selected()][0]))
+        g.add(self.form)
+        self.widget.add(g)
+
+        cfg.connect("changed", lambda *_: self.sync())
+        self.sync()
+
+    def sync(self):
+        t = self.cfg.get("phone.screen_timeout", 60)
+        keys = [x[0] for x in self.TIMEOUTS]
+        if t in keys:
+            self.timeout.set_selected(keys.index(t))
+        self.rotate.set_active(bool(self.cfg.get("phone.auto_rotate", True)))
+        sc = self.cfg.get("phone.scale") or 2.0
+        self.scale.set_selected(min(range(len(self.SCALES)), key=lambda i: abs(self.SCALES[i] - sc)))
+        forms = [f[0] for f in self.FORMS]
+        form = self.cfg.get("form") or "auto"
+        self.form.set_selected(forms.index(form) if form in forms else 0)
+
+
+# ======================================================================
 class SettingsWindow(Adw.ApplicationWindow):
     def __init__(self, app, cfg, start_page):
         super().__init__(application=app, title="Einstellungen", default_width=1000, default_height=720)
@@ -1021,15 +1116,17 @@ class SettingsWindow(Adw.ApplicationWindow):
         split.set_content(self.content_page)
         self.split = split
 
-        builders = {"appearance": AppearancePage, "widgets": WidgetsPage, "dock": DockPage,
+        builders = {"phone": PhonePage, "appearance": AppearancePage, "widgets": WidgetsPage, "dock": DockPage,
                     "displays": DisplaysPage,
                     "workspaces": WorkspacesPage, "apps": DefaultAppsPage, "keyboard": KeyboardPage,
                     "users": UsersPage, "accounts": AccountsPage, "about": AboutPage}
         self.pages = {}
         self.cfg = cfg
         self.builders = builders
-        for pid, name, icon in PAGES:
-            row = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=6)
+        self.page_list = PHONE_PAGES if PHONE else PAGES
+        pad = 14 if PHONE else 8   # finger-sized rows on the phone
+        for pid, name, icon in self.page_list:
+            row = Gtk.Box(spacing=12, margin_top=pad, margin_bottom=pad, margin_start=6)
             row.append(Gtk.Image(icon_name=icon))
             row.append(Gtk.Label(label=name, xalign=0))
             lbr = Gtk.ListBoxRow(child=row)
@@ -1044,12 +1141,13 @@ class SettingsWindow(Adw.ApplicationWindow):
         bp.add_setter(split, "collapsed", True)
         self.add_breakpoint(bp)
 
-        start = next((p for p in PAGES if p[0] == start_page), PAGES[0])
-        idx = PAGES.index(start)
-        self.sidebar.select_row(self.sidebar.get_row_at_index(idx))
-        self.show_page(start[0], start[1])
+        pages = self.page_list
+        start = next((p for p in pages if p[0] == start_page), pages[0])
+        self.sidebar.select_row(self.sidebar.get_row_at_index(pages.index(start)))
+        # phone without an explicit page: start with the list, like phone settings do
+        self.show_page(start[0], start[1], show=not (PHONE and start_page is None))
 
-    def show_page(self, pid, title):
+    def show_page(self, pid, title, show=True):
         if pid not in self.pages:
             try:
                 p = self.builders[pid](self.cfg)
@@ -1061,11 +1159,11 @@ class SettingsWindow(Adw.ApplicationWindow):
             self.stack.add_named(p.widget, pid)
         self.stack.set_visible_child_name(pid)
         self.content_page.set_title(title)
-        idx = next(i for i, p in enumerate(PAGES) if p[0] == pid)
+        idx = next(i for i, p in enumerate(self.page_list) if p[0] == pid)
         row = self.sidebar.get_row_at_index(idx)
         if self.sidebar.get_selected_row() is not row:
             self.sidebar.select_row(row)
-        self.split.set_show_content(True)
+        self.split.set_show_content(show)
 
 
 class SettingsApp(Adw.Application):
@@ -1085,10 +1183,12 @@ class SettingsApp(Adw.Application):
         page_ = self.start_page
         if "--page" in args and args.index("--page") + 1 < len(args):
             page_ = args[args.index("--page") + 1]
+        global PHONE
         if self.win is None:
+            PHONE = is_phone(self.cfg)
             self.win = SettingsWindow(self, self.cfg, page_)
         else:
-            for pid, name, _i in PAGES:
+            for pid, name, _i in self.win.page_list:
                 if pid == page_:
                     self.win.show_page(pid, name)
         self.win.present()
@@ -1097,7 +1197,7 @@ class SettingsApp(Adw.Application):
 
 def main():
     parser = argparse.ArgumentParser(prog="nothing-settings")
-    parser.add_argument("--page", default="appearance", choices=[p[0] for p in PAGES])
+    parser.add_argument("--page", default=None, choices=[p[0] for p in PHONE_PAGES + PAGES])
     args, _rest = parser.parse_known_args()
     return SettingsApp(args.page).run(sys.argv)
 

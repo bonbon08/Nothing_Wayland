@@ -199,6 +199,16 @@ def test_blank_timeout_turns_the_screen_off_without_input(start_session):
     assert s.state()["screen_off"] is False
 
 
+def test_output_transform_rotates_the_screen(start_session):
+    s = start_session()
+    out = s.state()["outputs"][0]
+    assert out["transform"] == 0
+    s.ipc(f"output {out['name']} transform 90")
+    assert s.state()["outputs"][0]["transform"] == 90
+    s.ipc(f"output {out['name']} transform 0")
+    assert s.state()["outputs"][0]["transform"] == 0
+
+
 def test_exit_command_ends_the_session(start_session):
     s = start_session()
     s.ipc("exit")
