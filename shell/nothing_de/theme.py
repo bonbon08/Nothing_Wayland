@@ -58,6 +58,9 @@ def build_css(cfg):
 :root {{ --accent-bg-color: {p['accent']}; --accent-color: {p['accent']}; --accent-fg-color: {p['on_accent']}; }}
 window.n-layer, window.n-layer > * {{ background: transparent; }}
 window.n-layer.n-phone-home {{ background: @n_bg; }}
+.n-phone-dim {{ background: transparent; }}
+window.n-phone-home.has-wallpaper .n-phone-dim {{ background: rgba(0,0,0,0.38); }}
+window.n-phone-home.has-wallpaper label {{ text-shadow: 0 1px 3px rgba(0,0,0,0.6); }}
 .n-phone-clock {{ font-size: 72px; font-weight: 300; letter-spacing: -1px; }}
 .n-phone-status {{ font-size: 14px; }}
 .n-home-hit {{ background: transparent; border: none; box-shadow: none; padding: 0;
@@ -78,6 +81,8 @@ levelbar.n-osd-bar block.empty {{ background: transparent; border: none; }}
 .n-power-item {{ background: @n_card; color: @n_fg; border: none; box-shadow: none;
   border-radius: 18px; padding: 16px 18px; font-size: 16px; }}
 .n-power-item:active {{ background: @n_card_hi; }}
+.n-osk-hide {{ background: @n_card; color: @n_fg; border: none; box-shadow: none;
+  border-radius: 999px; min-width: 44px; min-height: 30px; padding: 0 10px; }}
 .n-pill-button {{ background: @n_card_hi; color: @n_fg; border: none; box-shadow: none;
   border-radius: 999px; padding: 10px 24px; }}
 .n-home-pill {{ background: @n_fg; border-radius: 999px; min-width: 120px; min-height: 5px; }}

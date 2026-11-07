@@ -335,6 +335,10 @@ struct server {
 	struct wlr_input_method_manager_v2 *im_mgr;
 	struct wlr_input_method_v2 *im;
 	struct wl_list text_inputs;
+	/* closed with the shell's button: stays closed until a tap into a text field (or
+	 * another text field) asks for it again */
+	bool osk_dismissed;
+	int64_t last_touch_ms;
 	struct wl_listener new_text_input, new_input_method, im_commit, im_destroy,
 		kb_focus_change, new_virtual_keyboard;
 
@@ -376,6 +380,8 @@ static void set_blank(struct server *s, bool on);
 static void activity(struct server *s);
 static void output_set_transform(struct output *out, int degrees);
 static void map_touch_devices(struct server *s);
+static void im_update(struct server *s);
+static int64_t now_ms(void);
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
@@ -1024,9 +1030,9 @@ static char *build_state(struct server *s) {
 	size_t len = 0;
 	FILE *f = open_memstream(&buf, &len);
 	fprintf(f, "{\"event\":\"state\",\"workspace\":%d,\"workspaces\":%d,"
-		"\"focused\":%u,\"locked\":%s,\"screen_off\":%s,\"windows\":[",
+		"\"focused\":%u,\"locked\":%s,\"screen_off\":%s,\"osk\":%s,\"windows\":[",
 		s->cur_ws + 1, s->n_ws, focused_view_id(s), s->locked ? "true" : "false",
-		s->blanked ? "true" : "false");
+		s->blanked ? "true" : "false", s->im && s->im->active ? "true" : "false");
 	bool first = true;
 	struct view *v;
 	/* stable ordering by id so the dock does not jump around */
@@ -1360,6 +1366,10 @@ static void ipc_handle(struct ipc_client *c, char *line) {
 				}
 			}
 		}
+	} else if (!strcmp(cmd, "osk") && a1) {
+		/* osk hide | show: the on-screen keyboard (input method) */
+		s->osk_dismissed = !strcmp(a1, "hide");
+		im_update(s);
 	} else if (!strcmp(cmd, "screen") && a1) {
 		/* screen on | off | toggle */
 		set_blank(s, !strcmp(a1, "toggle") ? !s->blanked : !strcmp(a1, "off"));
@@ -2401,6 +2411,7 @@ static void touch_down(struct wl_listener *l, void *data) {
 	struct server *s = wl_container_of(l, s, touch_down);
 	struct wlr_touch_down_event *ev = data;
 	activity(s);
+	s->last_touch_ms = now_ms();
 	if (s->blanked) {
 		/* a dark screen takes no touches (the power key turns it on) */
 		return;
@@ -2443,6 +2454,7 @@ static void touch_down(struct wl_listener *l, void *data) {
 static void touch_up(struct wl_listener *l, void *data) {
 	struct server *s = wl_container_of(l, s, touch_up);
 	struct wlr_touch_up_event *ev = data;
+	s->last_touch_ms = now_ms(); /* GTK acts on the release */
 	struct touch_point *tp = touch_point_find(s, ev->touch_id);
 	if (tp) {
 		if (tp->surface) {
@@ -2486,6 +2498,8 @@ static void touch_frame(struct wl_listener *l, void *data) {
 /* ------------------------------------------------------------------ */
 /* on-screen keyboard: text-input-v3 <-> input-method-v2              */
 
+#define OSK_TAP_MS 700
+
 /* The text field that is enabled on the focused surface, if any. */
 static struct text_input *text_input_active(struct server *s) {
 	struct text_input *ti;
@@ -2518,7 +2532,8 @@ static void im_update(struct server *s) {
 	if (!s->im) {
 		return;
 	}
-	struct text_input *ti = s->locked ? NULL : text_input_active(s);
+	struct text_input *ti = s->locked || s->osk_dismissed ? NULL : text_input_active(s);
+	bool was_active = s->im->active;
 	if (ti) {
 		if (!s->im->active) {
 			wlr_input_method_v2_send_activate(s->im);
@@ -2528,10 +2543,14 @@ static void im_update(struct server *s) {
 		wlr_input_method_v2_send_deactivate(s->im);
 		wlr_input_method_v2_send_done(s->im);
 	}
+	if (was_active != s->im->active) {
+		schedule_state(s); /* "osk" in the state: the shell shows its hide button */
+	}
 }
 
 static void text_input_enable(struct wl_listener *l, void *data) {
 	struct text_input *ti = wl_container_of(l, ti, enable);
+	ti->server->osk_dismissed = false;
 	im_update(ti->server);
 }
 
@@ -2539,6 +2558,16 @@ static void text_input_commit(struct wl_listener *l, void *data) {
 	struct text_input *ti = wl_container_of(l, ti, commit);
 	struct server *s = ti->server;
 	if (!s->im || s->locked || !ti->input->current_enabled || !ti->input->focused_surface) {
+		return;
+	}
+	/* GTK re-enables its text field when it is tapped: a field update right after a
+	 * touch brings a dismissed keyboard back */
+	if (s->osk_dismissed && now_ms() - s->last_touch_ms < OSK_TAP_MS) {
+		s->osk_dismissed = false;
+		im_update(s);
+		return;
+	}
+	if (s->osk_dismissed) {
 		return;
 	}
 	im_send_state(s, ti->input);

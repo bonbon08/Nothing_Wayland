@@ -5,8 +5,9 @@ bleibt derselbe. Fenster bekommen nur den Platz zwischen Statusleiste und Home-L
 eine Exklusivzone melden. Der Startbildschirm liegt im Hintergrund-Layer, hinter den Fenstern.
 """
 import datetime
+import os
 
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
 
 from . import layer, system
 from .apps import launch_app
@@ -69,12 +70,45 @@ class PhoneHome(Gtk.ApplicationWindow):
         scroll = Gtk.ScrolledWindow(child=self.flow, hscrollbar_policy=Gtk.PolicyType.NEVER,
                                     vexpand=True)
         root.append(scroll)
-        self.set_child(root)
+        # wallpaper (phone.wallpaper, its own key: the desktop's is made for landscape), darkened
+        # a little so the app names stay readable
+        self.picture = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True,
+                                   hexpand=True, vexpand=True)
+        dim = Gtk.Box()
+        dim.add_css_class("n-phone-dim")
+        overlay = Gtk.Overlay(child=self.picture)
+        overlay.add_overlay(dim)
+        overlay.add_overlay(root)
+        self.set_child(overlay)
+        self._wallpaper = None
+        self._apply_wallpaper()
+        shell.cfg.connect("changed", lambda *_: self._apply_wallpaper())
 
         shell.apps.listeners.append(self.populate)
         GLib.timeout_add_seconds(1, self._tick)
         self._tick()
         GLib.idle_add(lambda: (self.populate(), False)[1])
+
+    def _apply_wallpaper(self):
+        path = self.shell.cfg.get("phone.wallpaper") or ""
+        if path == self._wallpaper:
+            return
+        self._wallpaper = path
+        texture = None
+        if path and os.path.exists(path):
+            # through GdkPixbuf: its loaders know more formats (JPEG XL, WebP, ...), and the
+            # image is scaled down to about the screen size right away
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 1600, 1600, True)
+                texture = Gdk.Texture.new_for_pixbuf(pb)
+            except GLib.Error as e:
+                print("nothing-de: wallpaper", path, e.message)
+        if texture is not None:
+            self.picture.set_paintable(texture)
+            self.add_css_class("has-wallpaper")
+        else:
+            self.picture.set_paintable(None)
+            self.remove_css_class("has-wallpaper")
 
     def _tick(self):
         now = datetime.datetime.now()
@@ -224,10 +258,20 @@ class PhoneNav(Gtk.ApplicationWindow):
         pill.set_valign(Gtk.Align.CENTER)
         btn.set_child(pill)
         btn.connect("clicked", lambda *_: self._home())
-        self.set_child(btn)
+        # closes the on-screen keyboard; a tap into a text field brings it back
+        self.osk_btn = Gtk.Button(icon_name="input-keyboard-symbolic", halign=Gtk.Align.END,
+                                  valign=Gtk.Align.CENTER, tooltip_text="Tastatur schließen")
+        self.osk_btn.add_css_class("n-osk-hide")
+        self.osk_btn.set_margin_end(14)
+        self.osk_btn.set_visible(False)
+        self.osk_btn.connect("clicked", lambda *_: shell.wm.send("osk", "hide"))
+        box = Gtk.Overlay(child=btn)
+        box.add_overlay(self.osk_btn)
+        self.set_child(box)
         self.set_size_request(-1, 40)
         self.pill = pill
         _swipe(self, self._on_drag_end, self._on_drag_update)
+        shell.wm.connect("state", lambda _wm, st: self.osk_btn.set_visible(bool(st.get("osk"))))
 
     def _home(self):
         self.shell.close_overlays()

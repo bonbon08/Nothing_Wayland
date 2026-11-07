@@ -12,7 +12,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
 from . import dotmatrix  # noqa: E402
 from .apps import app_icon  # noqa: E402
@@ -139,15 +139,15 @@ class AppearancePage:
         g.add(self.scale_row)
         self.widget.add(g)
 
-        g = group("Hintergrundbild")
-        # the phone's home screen has no wallpaper
-        g.set_visible(not PHONE)
+        # the phone's home screen has its own wallpaper key (the desktop's is made for landscape)
+        self.wp_key = "phone.wallpaper" if PHONE else "wallpaper"
+        g = group("Hintergrundbild", "Hinter dem App-Raster, leicht abgedunkelt." if PHONE else None)
         self.preview = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, height_request=200,
                                    can_shrink=True)
         self.preview.add_css_class("card")
         self.preview.set_overflow(Gtk.Overflow.HIDDEN)
         g.add(self.preview)
-        self.flow = Gtk.FlowBox(max_children_per_line=5, min_children_per_line=3,
+        self.flow = Gtk.FlowBox(max_children_per_line=5, min_children_per_line=2 if PHONE else 3,
                                 selection_mode=Gtk.SelectionMode.NONE, row_spacing=8,
                                 column_spacing=8, margin_top=12, homogeneous=True)
         g.add(self.flow)
@@ -161,6 +161,7 @@ class AppearancePage:
         fits = ["cover", "contain", "fill"]
         fit.set_selected(fits.index(cfg.get("wallpaper_fit")) if cfg.get("wallpaper_fit") in fits else 0)
         fit.connect("notify::selected", lambda r, _p: cfg.set("wallpaper_fit", fits[r.get_selected()]))
+        fit.set_visible(not PHONE)   # the phone always fills the screen
         g.add(fit)
         bg = Adw.ActionRow(title="Hintergrundfarbe", subtitle="Sichtbar bei „Einpassen“ oder ohne Bild")
         bgbtn = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False), valign=Gtk.Align.CENTER)
@@ -169,6 +170,7 @@ class AppearancePage:
         bgbtn.set_rgba(c)
         bgbtn.connect("notify::rgba", lambda b, _p: cfg.set("background_color", rgba_hex(b.get_rgba())))
         bg.add_suffix(bgbtn)
+        bg.set_visible(not PHONE)
         g.add(bg)
         none = Adw.ActionRow(title="Kein Bild (nur Farbe)", activatable=True)
         none.connect("activated", lambda *_: self.set_wallpaper(""))
@@ -181,6 +183,12 @@ class AppearancePage:
         paths = []
         dirs = [WALLPAPER_DIR, "/usr/share/backgrounds", "/usr/share/backgrounds/gnome",
                 os.path.join(GLib.get_user_data_dir(), "backgrounds")]
+        if PHONE:
+            # own photos first (camera app, downloads into Pictures)
+            pics = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
+            dirs = [d for d in (pics, os.path.expanduser("~/Bilder"), os.path.expanduser("~/Pictures"))
+                    if d] + dirs
+            dirs = list(dict.fromkeys(dirs))
         for d in dirs:
             if os.path.isdir(d):
                 for n in sorted(os.listdir(d)):
@@ -189,7 +197,13 @@ class AppearancePage:
         for p in paths[:40]:
             pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True)
             pic.set_size_request(140, 80)
-            pic.set_filename(p)
+            # a small thumbnail: with the full image as natural size, the homogeneous rows
+            # would all grow to the tallest picture
+            try:
+                thumb = GdkPixbuf.Pixbuf.new_from_file_at_scale(p, 280, 160, True)
+                pic.set_paintable(Gdk.Texture.new_for_pixbuf(thumb))
+            except GLib.Error:
+                continue
             btn = Gtk.Button(child=pic, tooltip_text=os.path.basename(p))
             btn.add_css_class("flat")
             btn.set_overflow(Gtk.Overflow.HIDDEN)
@@ -215,7 +229,7 @@ class AppearancePage:
         dlg.open(self.widget.get_root(), None, done)
 
     def set_wallpaper(self, path):
-        self.cfg.set("wallpaper", path)
+        self.cfg.set(self.wp_key, path)
 
     def set_accent(self, hx):
         self.cfg.set("accent", hx)
@@ -235,11 +249,18 @@ class AppearancePage:
                 b.add_css_class("sel")
             else:
                 b.remove_css_class("sel")
-        p = self.cfg.get("wallpaper") or ""
-        if p and os.path.exists(p):
-            self.preview.set_filename(p)
-        else:
-            self.preview.set_paintable(None)
+        p = self.cfg.get(self.wp_key) or ""
+        if p != getattr(self, "_preview_path", None):
+            self._preview_path = p
+            texture = None
+            if p and os.path.exists(p):
+                # GdkPixbuf knows more formats than Gtk.Picture alone (JPEG XL, WebP)
+                try:
+                    pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(p, 1200, 800, True)
+                    texture = Gdk.Texture.new_for_pixbuf(pb)
+                except GLib.Error:
+                    pass
+            self.preview.set_paintable(texture)
 
 
 def rgba_hex(rgba):

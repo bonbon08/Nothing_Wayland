@@ -41,6 +41,8 @@ Fenster-IDs (`ID`) stammen aus `state`. Arbeitsflächen werden ab 1 gezählt.
 | `output NAME scale F` | Bildschirm skalieren (0.5–4) |
 | `output NAME enabled 0\|1` | Bildschirm ab- oder einschalten; der letzte aktive bleibt an |
 | `output NAME position X Y` | Bildschirm im Layout anordnen (logische Pixel) |
+| `output NAME transform 0\|90\|180\|270` | Bildschirm drehen; zugeordnete Touchscreens drehen mit |
+| `osk hide\|show` | Bildschirmtastatur schließen bzw. zulassen; geschlossen bleibt sie, bis ein Tipp in ein Textfeld oder ein neues Textfeld sie wieder öffnet |
 | `screen on\|off\|toggle` | Bildschirm an- oder ausschalten (Telefon: wie die Ein-/Aus-Taste); die Bildschirme bleiben im Layout |
 | `action NAME` | Aktion an alle Abonnenten senden (siehe unten) |
 | `config KEY WERT` | Laufzeit-Einstellung setzen (siehe unten) |
@@ -65,11 +67,11 @@ Die Shell sendet diese Werte beim Verbinden und bei jeder Änderung von `config.
 **`state`** kommt bei jeder Änderung, zusammengefasst pro Durchlauf der Ereignisschleife:
 
 ```json
-{"event":"state","workspace":1,"workspaces":4,"focused":3,"locked":false,"screen_off":false,
+{"event":"state","workspace":1,"workspaces":4,"focused":3,"locked":false,"screen_off":false,"osk":false,
  "windows":[{"id":3,"app_id":"org.gnome.Console","title":"~","ws":1,
              "minimized":false,"maximized":false,"fullscreen":false,"ontop":false,"x11":false,"taskbar":true,"pid":1234}],
  "outputs":[{"name":"DP-1","description":"Dell U2720Q","width":3840,"height":2160,
-             "scale":1.500,"enabled":true}]}
+             "scale":1.500,"transform":0,"enabled":true}]}
 ```
 
 Fenster sind nach ID sortiert. X11-Fenster mit `skip_taskbar` fehlen. `taskbar` ist `false` bei Fenstern
@@ -84,7 +86,9 @@ Fenster von höchstens 1 px Kantenlänge.
 
 Bekannte Namen: `launcher`, `control`, `terminal`, `files`, `settings`, `lock`, `screenshot`, `overview`,
 `alt_tab` und `alt_tab_end` (Beginn/Schritt und Ende des Fensterwechsels) sowie `screen_off` und
-`screen_on` (Ein-/Aus-Taste, `blank_timeout` oder `screen`; die Telefon-Ansicht sperrt bei `screen_off`).
+`screen_on` (Ein-/Aus-Taste, `blank_timeout` oder `screen`; die Telefon-Ansicht sperrt bei `screen_off`),
+`power_menu` (Ein-/Aus-Taste gehalten), `osd_volume` und `osd_brightness` (nach Lautstärke- bzw.
+Helligkeitstasten). `osk` im Zustand sagt, ob die Bildschirmtastatur gerade aktiv ist.
 
 ## Beispiel: eigene Zeile für eine Statusleiste
 

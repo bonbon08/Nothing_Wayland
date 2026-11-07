@@ -209,6 +209,14 @@ def test_output_transform_rotates_the_screen(start_session):
     assert s.state()["outputs"][0]["transform"] == 0
 
 
+def test_osk_command_without_input_method(start_session):
+    s = start_session()
+    assert s.state()["osk"] is False
+    # no on-screen keyboard connected: the commands are accepted and change nothing
+    assert not [m for m in s.ipc("osk hide", "osk show") if m.get("event") == "error"]
+    assert s.state()["osk"] is False
+
+
 def test_exit_command_ends_the_session(start_session):
     s = start_session()
     s.ipc("exit")
