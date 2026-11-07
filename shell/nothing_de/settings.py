@@ -12,9 +12,9 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import dotmatrix  # noqa: E402
+from . import dotmatrix, thumbs  # noqa: E402
 from .apps import app_icon  # noqa: E402
 from .config import ACCENTS, WALLPAPER_DIR, get_config  # noqa: E402
 from .ipc import WindowManager  # noqa: E402
@@ -197,13 +197,10 @@ class AppearancePage:
         for p in paths[:40]:
             pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True)
             pic.set_size_request(140, 80)
-            # a small thumbnail: with the full image as natural size, the homogeneous rows
-            # would all grow to the tallest picture
-            try:
-                thumb = GdkPixbuf.Pixbuf.new_from_file_at_scale(p, 280, 160, True)
-                pic.set_paintable(Gdk.Texture.new_for_pixbuf(thumb))
-            except GLib.Error:
-                continue
+            # a small thumbnail, loaded in the background (decoding all of them took ~15 s on
+            # the phone); with the full image as natural size the homogeneous rows would all
+            # grow to the tallest picture
+            thumbs.load_async(p, 280, 160, pic.set_paintable)
             btn = Gtk.Button(child=pic, tooltip_text=os.path.basename(p))
             btn.add_css_class("flat")
             btn.set_overflow(Gtk.Overflow.HIDDEN)
@@ -252,15 +249,10 @@ class AppearancePage:
         p = self.cfg.get(self.wp_key) or ""
         if p != getattr(self, "_preview_path", None):
             self._preview_path = p
-            texture = None
+            self.preview.set_paintable(None)
             if p and os.path.exists(p):
-                # GdkPixbuf knows more formats than Gtk.Picture alone (JPEG XL, WebP)
-                try:
-                    pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(p, 1200, 800, True)
-                    texture = Gdk.Texture.new_for_pixbuf(pb)
-                except GLib.Error:
-                    pass
-            self.preview.set_paintable(texture)
+                thumbs.load_async(p, 1200, 800, lambda t, p=p: self._preview_path == p and
+                                  self.preview.set_paintable(t))
 
 
 def rgba_hex(rgba):

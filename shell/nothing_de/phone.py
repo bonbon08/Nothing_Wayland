@@ -7,9 +7,9 @@ eine Exklusivzone melden. Der Startbildschirm liegt im Hintergrund-Layer, hinter
 import datetime
 import os
 
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
+from gi.repository import GLib, Gtk, Pango
 
-from . import layer, system
+from . import layer, system, thumbs
 from .apps import launch_app
 from .bar import MONTHS_SHORT, WEEKDAYS_SHORT
 from .icons import icon_widget
@@ -94,20 +94,22 @@ class PhoneHome(Gtk.ApplicationWindow):
         if path == self._wallpaper:
             return
         self._wallpaper = path
-        texture = None
-        if path and os.path.exists(path):
-            # through GdkPixbuf: its loaders know more formats (JPEG XL, WebP, ...), and the
-            # image is scaled down to about the screen size right away
-            try:
-                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 1600, 1600, True)
-                texture = Gdk.Texture.new_for_pixbuf(pb)
-            except GLib.Error as e:
-                print("nothing-de: wallpaper", path, e.message)
+        if not (path and os.path.exists(path)):
+            self.picture.set_paintable(None)
+            self.remove_css_class("has-wallpaper")
+            return
+        # in the background, scaled down to about the screen size (GdkPixbuf: JPEG XL, WebP ...)
+        thumbs.load_async(path, 1600, 1600, lambda t, p=path: self._show_wallpaper(p, t))
+
+    def _show_wallpaper(self, path, texture):
+        if path != self._wallpaper:
+            return
+        if texture is None:
+            print("nothing-de: wallpaper not readable:", path)
+        self.picture.set_paintable(texture)
         if texture is not None:
-            self.picture.set_paintable(texture)
             self.add_css_class("has-wallpaper")
         else:
-            self.picture.set_paintable(None)
             self.remove_css_class("has-wallpaper")
 
     def _tick(self):
