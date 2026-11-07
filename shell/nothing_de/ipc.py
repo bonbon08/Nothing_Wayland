@@ -94,6 +94,7 @@ class WindowManager(GObject.Object):
     def toggle(self, wid): self.send("toggle", wid)
     def close(self, wid): self.send("close", wid)
     def minimize(self, wid): self.send("minimize", wid)
+    def show_desktop(self): self.send("show_desktop")
     def maximize(self, wid): self.send("maximize", wid)
     def workspace(self, n): self.send("ws", n)
     def move_to(self, wid, n): self.send("move", wid, n)

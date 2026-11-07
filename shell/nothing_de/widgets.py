@@ -217,10 +217,29 @@ class WeatherWidget(DesktopWidget):
         return False
 
 
-def read_battery():
+def _battery_dir():
+    """BAT0 and friends on laptops; phones name theirs differently (e.g. "battery")."""
     bats = sorted(glob.glob("/sys/class/power_supply/BAT*"))
-    if not bats:
+    if bats:
+        return bats[0]
+    for d in sorted(glob.glob("/sys/class/power_supply/*")):
+        try:
+            with open(os.path.join(d, "type")) as f:
+                if f.read().strip() != "Battery":
+                    continue
+            with open(os.path.join(d, "capacity")) as f:
+                int(f.read().strip())
+        except (OSError, ValueError):
+            continue
+        return d
+    return None
+
+
+def read_battery():
+    bat = _battery_dir()
+    if bat is None:
         return None, None
+    bats = [bat]
     try:
         with open(os.path.join(bats[0], "capacity")) as f:
             cap = int(f.read().strip())

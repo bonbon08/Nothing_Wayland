@@ -3,7 +3,7 @@ pkgname=nothing-de
 pkgver=0.1.0
 pkgrel=1
 pkgdesc="Nothing OS styled Wayland desktop (compositor, shell, settings)"
-arch=(x86_64)
+arch=(x86_64 aarch64)
 license=(MIT)
 depends=(wlroots0.20 xorg-xwayland gtk4 gtk4-layer-shell libadwaita python python-gobject python-cairo python-numpy
          gnome-online-accounts accountsservice polkit-gnome xdg-desktop-portal-gtk xdg-desktop-portal-wlr)

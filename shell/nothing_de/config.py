@@ -51,7 +51,11 @@ DEFAULTS = {
     "wallpaper_fit": "cover",        # cover | contain | fill
     "background_color": "#000000",
     "workspaces": 4,
+    "form": "auto",                  # auto (portrait screen = phone) | phone | desktop
     "display": {"scale": 1.0},
+    # phone layout (see phone.py): own screen scale; seconds without a touch until the
+    # screen goes off and the phone locks (0 = never)
+    "phone": {"scale": 2.0, "screen_timeout": 60, "auto_rotate": True, "wallpaper": ""},
     "terminal": "",
     "files": "",
     "keyboard": {"layout": "us", "variant": "", "options": ""},

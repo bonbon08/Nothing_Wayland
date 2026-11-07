@@ -18,6 +18,11 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 | `files` | Befehl | `""` | Dateimanager für Super + E; leer bedeutet Standard-App für Ordner |
 | `keyboard.layout` / `.variant` / `.options` | XKB | `"us"`, `""`, `""` | Tastaturbelegung |
 | `display.scale` | Zahl, 0.5–4 | `1.0` | Skalierung aller Bildschirme ohne eigenen Wert |
+| `form` | `auto`, `phone`, `desktop` | `auto` | Oberfläche: `auto` nimmt die Telefon-Ansicht, wenn der erste Bildschirm hochkant steht |
+| `phone.scale` | Zahl, 0.5–4 | `2.0` | Skalierung in der Telefon-Ansicht, sofern kein `outputs.<NAME>.scale` gesetzt ist |
+| `phone.screen_timeout` | Sekunden | `60` | Telefon: so lange ohne Berührung, dann geht der Bildschirm aus und das Telefon sperrt (`0` = nie) |
+| `phone.auto_rotate` | `true` \| `false` | `true` | Telefon: Bildschirm mit dem Lagesensor drehen (gesperrt immer hochkant) |
+| `phone.wallpaper` | Pfad | `""` | Telefon: Hintergrundbild hinter dem App-Raster, leicht abgedunkelt; leer = schwarz |
 | `outputs.<NAME>.scale` | Zahl, 0.5–4 | `display.scale` | Skalierung dieses Bildschirms, `NAME` ist der Anschluss wie `DP-1` |
 | `outputs.<NAME>.enabled` | bool | `true` | Bildschirm verwenden; der letzte aktive lässt sich nicht abschalten |
 | `bar.clock_24h` | bool | `true` | 24-Stunden-Uhr |

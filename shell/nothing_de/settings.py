@@ -14,7 +14,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import dotmatrix  # noqa: E402
+from . import dotmatrix, settings_net, thumbs  # noqa: E402
 from .apps import app_icon  # noqa: E402
 from .config import ACCENTS, WALLPAPER_DIR, get_config  # noqa: E402
 from .ipc import WindowManager  # noqa: E402
@@ -24,6 +24,10 @@ from .widgets import fetch_json  # noqa: E402
 
 PAGES = [
     ("appearance", "Darstellung", "applications-graphics-symbolic"),
+    ("wifi", "WLAN", "network-wireless-symbolic"),
+    ("wired", "LAN", "network-wired-symbolic"),
+    ("bluetooth", "Bluetooth", "bluetooth-active-symbolic"),
+    ("mobile", "Mobilfunk", "network-cellular-signal-good-symbolic"),
     ("widgets", "Widgets", "view-grid-symbolic"),
     ("dock", "Dock & Leiste", "user-desktop-symbolic"),
     ("displays", "Bildschirme", "video-display-symbolic"),
@@ -34,6 +38,34 @@ PAGES = [
     ("accounts", "Online-Konten", "goa-panel-symbolic"),
     ("about", "Info", "help-about-symbolic"),
 ]
+
+# phone layout: an own page first, without the desktop-only pages (widgets, dock, workspaces)
+# connections first, as on a phone
+_NET = ("wifi", "mobile", "bluetooth", "wired")
+PHONE_PAGES = [p for pid in _NET for p in PAGES if p[0] == pid] + \
+    [("phone", "Telefon", "phone-symbolic")] + \
+    [p for p in PAGES if p[0] not in ("widgets", "dock", "workspaces") + _NET]
+
+PHONE = False   # set in main(): the shell shows its phone layout
+
+
+def is_phone(cfg):
+    """Same rule as the shell: "form" (or NOTHING_FORM) decides, otherwise an upright or
+    narrow screen."""
+    form = os.environ.get("NOTHING_FORM") or cfg.get("form") or "auto"
+    if form in ("phone", "desktop"):
+        return form == "phone"
+    # started from the shell: it says which layout it shows (the screen list can still be
+    # empty this early)
+    layout = os.environ.get("NOTHING_LAYOUT")
+    if layout in ("phone", "desktop"):
+        return layout == "phone"
+    display = Gdk.Display.get_default()
+    monitors = display.get_monitors() if display else None
+    if not monitors or monitors.get_n_items() == 0:
+        return False
+    geo = monitors.get_item(0).get_geometry()
+    return geo.height > geo.width or geo.width < 700
 
 
 def css_for(widget, css):
@@ -80,7 +112,10 @@ class AppearancePage:
 
         g = group("Kontrastfarbe", "Wird für Hervorhebungen, aktive Schalter und Punkte verwendet.")
         row = Adw.PreferencesRow(activatable=False)
-        box = Gtk.Box(spacing=10, margin_top=14, margin_bottom=14, margin_start=14, margin_end=14)
+        # wraps on narrow screens (phone)
+        box = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, column_spacing=10, row_spacing=10,
+                          max_children_per_line=12, min_children_per_line=5,
+                          margin_top=14, margin_bottom=14, margin_start=14, margin_end=14)
         self.swatches = []
         for name, hx in ACCENTS:
             b = Gtk.Button(tooltip_text=name)
@@ -92,8 +127,6 @@ class AppearancePage:
             b.connect("clicked", lambda _b, hx=hx: self.set_accent(hx))
             self.swatches.append(b)
             box.append(b)
-        spacer = Gtk.Box(hexpand=True)
-        box.append(spacer)
         self.color_btn = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(title="Eigene Farbe", with_alpha=False),
                                                tooltip_text="Eigene Farbe", valign=Gtk.Align.CENTER)
         rgba = Gdk.RGBA()
@@ -107,6 +140,8 @@ class AppearancePage:
 
         g = group("Anzeige", "Für sehr hochauflösende Bildschirme, auf denen alles winzig wirkt. "
                        "Unter „Bildschirme“ lässt sich jeder einzeln einstellen, das hat Vorrang.")
+        # the phone has its own scale on the "Telefon" page
+        g.set_visible(not PHONE)
         self._scales = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
         self.scale_row = Adw.ComboRow(
             title="Skalierung",
@@ -116,13 +151,15 @@ class AppearancePage:
         g.add(self.scale_row)
         self.widget.add(g)
 
-        g = group("Hintergrundbild")
+        # the phone's home screen has its own wallpaper key (the desktop's is made for landscape)
+        self.wp_key = "phone.wallpaper" if PHONE else "wallpaper"
+        g = group("Hintergrundbild", "Hinter dem App-Raster, leicht abgedunkelt." if PHONE else None)
         self.preview = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, height_request=200,
                                    can_shrink=True)
         self.preview.add_css_class("card")
         self.preview.set_overflow(Gtk.Overflow.HIDDEN)
         g.add(self.preview)
-        self.flow = Gtk.FlowBox(max_children_per_line=5, min_children_per_line=3,
+        self.flow = Gtk.FlowBox(max_children_per_line=5, min_children_per_line=2 if PHONE else 3,
                                 selection_mode=Gtk.SelectionMode.NONE, row_spacing=8,
                                 column_spacing=8, margin_top=12, homogeneous=True)
         g.add(self.flow)
@@ -136,6 +173,7 @@ class AppearancePage:
         fits = ["cover", "contain", "fill"]
         fit.set_selected(fits.index(cfg.get("wallpaper_fit")) if cfg.get("wallpaper_fit") in fits else 0)
         fit.connect("notify::selected", lambda r, _p: cfg.set("wallpaper_fit", fits[r.get_selected()]))
+        fit.set_visible(not PHONE)   # the phone always fills the screen
         g.add(fit)
         bg = Adw.ActionRow(title="Hintergrundfarbe", subtitle="Sichtbar bei „Einpassen“ oder ohne Bild")
         bgbtn = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False), valign=Gtk.Align.CENTER)
@@ -144,6 +182,7 @@ class AppearancePage:
         bgbtn.set_rgba(c)
         bgbtn.connect("notify::rgba", lambda b, _p: cfg.set("background_color", rgba_hex(b.get_rgba())))
         bg.add_suffix(bgbtn)
+        bg.set_visible(not PHONE)
         g.add(bg)
         none = Adw.ActionRow(title="Kein Bild (nur Farbe)", activatable=True)
         none.connect("activated", lambda *_: self.set_wallpaper(""))
@@ -156,6 +195,12 @@ class AppearancePage:
         paths = []
         dirs = [WALLPAPER_DIR, "/usr/share/backgrounds", "/usr/share/backgrounds/gnome",
                 os.path.join(GLib.get_user_data_dir(), "backgrounds")]
+        if PHONE:
+            # own photos first (camera app, downloads into Pictures)
+            pics = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
+            dirs = [d for d in (pics, os.path.expanduser("~/Bilder"), os.path.expanduser("~/Pictures"))
+                    if d] + dirs
+            dirs = list(dict.fromkeys(dirs))
         for d in dirs:
             if os.path.isdir(d):
                 for n in sorted(os.listdir(d)):
@@ -164,7 +209,10 @@ class AppearancePage:
         for p in paths[:40]:
             pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True)
             pic.set_size_request(140, 80)
-            pic.set_filename(p)
+            # a small thumbnail, loaded in the background (decoding all of them took ~15 s on
+            # the phone); with the full image as natural size the homogeneous rows would all
+            # grow to the tallest picture
+            thumbs.load_async(p, 280, 160, pic.set_paintable)
             btn = Gtk.Button(child=pic, tooltip_text=os.path.basename(p))
             btn.add_css_class("flat")
             btn.set_overflow(Gtk.Overflow.HIDDEN)
@@ -190,7 +238,7 @@ class AppearancePage:
         dlg.open(self.widget.get_root(), None, done)
 
     def set_wallpaper(self, path):
-        self.cfg.set("wallpaper", path)
+        self.cfg.set(self.wp_key, path)
 
     def set_accent(self, hx):
         self.cfg.set("accent", hx)
@@ -210,11 +258,13 @@ class AppearancePage:
                 b.add_css_class("sel")
             else:
                 b.remove_css_class("sel")
-        p = self.cfg.get("wallpaper") or ""
-        if p and os.path.exists(p):
-            self.preview.set_filename(p)
-        else:
+        p = self.cfg.get(self.wp_key) or ""
+        if p != getattr(self, "_preview_path", None):
+            self._preview_path = p
             self.preview.set_paintable(None)
+            if p and os.path.exists(p):
+                thumbs.load_async(p, 1200, 800, lambda t, p=p: self._preview_path == p and
+                                  self.preview.set_paintable(t))
 
 
 def rgba_hex(rgba):
@@ -995,6 +1045,76 @@ class AboutPage:
 
 
 # ======================================================================
+class PhonePage:
+    """Telefon: Bildschirm-Timeout, Drehen, Skalierung, Bildschirmtastatur, Ansicht."""
+
+    TIMEOUTS = [(30, "30 Sekunden"), (60, "1 Minute"), (120, "2 Minuten"), (300, "5 Minuten"),
+                (600, "10 Minuten"), (0, "Nie")]
+    SCALES = [1.5, 1.75, 2.0, 2.25, 2.5, 3.0]
+    FORMS = [("auto", "Automatisch"), ("phone", "Telefon"), ("desktop", "Desktop")]
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.widget = page("Telefon")
+
+        g = group("Bildschirm")
+        self.timeout = Adw.ComboRow(title="Bildschirm aus nach",
+                                    subtitle="Danach sperrt das Telefon",
+                                    model=Gtk.StringList.new([t[1] for t in self.TIMEOUTS]))
+        self.timeout.connect("notify::selected", lambda r, _p: cfg.set(
+            "phone.screen_timeout", self.TIMEOUTS[r.get_selected()][0]))
+        g.add(self.timeout)
+        self.rotate = Adw.SwitchRow(title="Automatisch drehen",
+                                    subtitle="Der Bildschirm dreht sich mit dem Telefon")
+        self.rotate.connect("notify::active",
+                            lambda r, _p: cfg.set("phone.auto_rotate", r.get_active()))
+        g.add(self.rotate)
+        self.scale = Adw.ComboRow(title="Größe der Anzeige",
+                                  model=Gtk.StringList.new([f"{int(x * 100)} %" for x in self.SCALES]))
+        self.scale.connect("notify::selected",
+                           lambda r, _p: cfg.set("phone.scale", self.SCALES[r.get_selected()]))
+        g.add(self.scale)
+        self.widget.add(g)
+
+        g = group("Eingabe")
+        self.osk = Adw.SwitchRow(title="Bildschirmtastatur",
+                                 subtitle="Erscheint, sobald ein Textfeld ausgewählt ist")
+        self.a11y = None
+        try:
+            self.a11y = Gio.Settings.new("org.gnome.desktop.a11y.applications")
+            self.a11y.bind("screen-keyboard-enabled", self.osk, "active",
+                           Gio.SettingsBindFlags.DEFAULT)
+        except (TypeError, GLib.Error):
+            self.osk.set_sensitive(False)
+        g.add(self.osk)
+        self.widget.add(g)
+
+        g = group("Ansicht", "„Automatisch“ nimmt die Telefon-Ansicht für hochkante Bildschirme. "
+                             "„Desktop“ zeigt Leiste und Dock, etwa mit externem Monitor.")
+        self.form = Adw.ComboRow(title="Oberfläche",
+                                 model=Gtk.StringList.new([f[1] for f in self.FORMS]))
+        self.form.connect("notify::selected",
+                          lambda r, _p: cfg.set("form", self.FORMS[r.get_selected()][0]))
+        g.add(self.form)
+        self.widget.add(g)
+
+        cfg.connect("changed", lambda *_: self.sync())
+        self.sync()
+
+    def sync(self):
+        t = self.cfg.get("phone.screen_timeout", 60)
+        keys = [x[0] for x in self.TIMEOUTS]
+        if t in keys:
+            self.timeout.set_selected(keys.index(t))
+        self.rotate.set_active(bool(self.cfg.get("phone.auto_rotate", True)))
+        sc = self.cfg.get("phone.scale") or 2.0
+        self.scale.set_selected(min(range(len(self.SCALES)), key=lambda i: abs(self.SCALES[i] - sc)))
+        forms = [f[0] for f in self.FORMS]
+        form = self.cfg.get("form") or "auto"
+        self.form.set_selected(forms.index(form) if form in forms else 0)
+
+
+# ======================================================================
 class SettingsWindow(Adw.ApplicationWindow):
     def __init__(self, app, cfg, start_page):
         super().__init__(application=app, title="Einstellungen", default_width=1000, default_height=720)
@@ -1021,15 +1141,19 @@ class SettingsWindow(Adw.ApplicationWindow):
         split.set_content(self.content_page)
         self.split = split
 
-        builders = {"appearance": AppearancePage, "widgets": WidgetsPage, "dock": DockPage,
+        builders = {"phone": PhonePage, "appearance": AppearancePage,
+                    "wifi": settings_net.WifiPage, "wired": settings_net.WiredPage,
+                    "bluetooth": settings_net.BluetoothPage, "mobile": settings_net.MobilePage, "widgets": WidgetsPage, "dock": DockPage,
                     "displays": DisplaysPage,
                     "workspaces": WorkspacesPage, "apps": DefaultAppsPage, "keyboard": KeyboardPage,
                     "users": UsersPage, "accounts": AccountsPage, "about": AboutPage}
         self.pages = {}
         self.cfg = cfg
         self.builders = builders
-        for pid, name, icon in PAGES:
-            row = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=6)
+        self.page_list = PHONE_PAGES if PHONE else PAGES
+        pad = 14 if PHONE else 8   # finger-sized rows on the phone
+        for pid, name, icon in self.page_list:
+            row = Gtk.Box(spacing=12, margin_top=pad, margin_bottom=pad, margin_start=6)
             row.append(Gtk.Image(icon_name=icon))
             row.append(Gtk.Label(label=name, xalign=0))
             lbr = Gtk.ListBoxRow(child=row)
@@ -1044,12 +1168,13 @@ class SettingsWindow(Adw.ApplicationWindow):
         bp.add_setter(split, "collapsed", True)
         self.add_breakpoint(bp)
 
-        start = next((p for p in PAGES if p[0] == start_page), PAGES[0])
-        idx = PAGES.index(start)
-        self.sidebar.select_row(self.sidebar.get_row_at_index(idx))
-        self.show_page(start[0], start[1])
+        pages = self.page_list
+        start = next((p for p in pages if p[0] == start_page), pages[0])
+        self.sidebar.select_row(self.sidebar.get_row_at_index(pages.index(start)))
+        # phone without an explicit page: start with the list, like phone settings do
+        self.show_page(start[0], start[1], show=not (PHONE and start_page is None))
 
-    def show_page(self, pid, title):
+    def show_page(self, pid, title, show=True):
         if pid not in self.pages:
             try:
                 p = self.builders[pid](self.cfg)
@@ -1061,11 +1186,11 @@ class SettingsWindow(Adw.ApplicationWindow):
             self.stack.add_named(p.widget, pid)
         self.stack.set_visible_child_name(pid)
         self.content_page.set_title(title)
-        idx = next(i for i, p in enumerate(PAGES) if p[0] == pid)
+        idx = next(i for i, p in enumerate(self.page_list) if p[0] == pid)
         row = self.sidebar.get_row_at_index(idx)
         if self.sidebar.get_selected_row() is not row:
             self.sidebar.select_row(row)
-        self.split.set_show_content(True)
+        self.split.set_show_content(show)
 
 
 class SettingsApp(Adw.Application):
@@ -1085,10 +1210,12 @@ class SettingsApp(Adw.Application):
         page_ = self.start_page
         if "--page" in args and args.index("--page") + 1 < len(args):
             page_ = args[args.index("--page") + 1]
+        global PHONE
         if self.win is None:
+            PHONE = is_phone(self.cfg)
             self.win = SettingsWindow(self, self.cfg, page_)
         else:
-            for pid, name, _i in PAGES:
+            for pid, name, _i in self.win.page_list:
                 if pid == page_:
                     self.win.show_page(pid, name)
         self.win.present()
@@ -1097,7 +1224,7 @@ class SettingsApp(Adw.Application):
 
 def main():
     parser = argparse.ArgumentParser(prog="nothing-settings")
-    parser.add_argument("--page", default="appearance", choices=[p[0] for p in PAGES])
+    parser.add_argument("--page", default=None, choices=[p[0] for p in PHONE_PAGES + PAGES])
     args, _rest = parser.parse_known_args()
     return SettingsApp(args.page).run(sys.argv)
 

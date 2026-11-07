@@ -78,6 +78,10 @@ def volume_icon(vol, muted):
 # ------------------------------------------------------------- brightness
 def _backlight():
     devs = sorted(glob.glob("/sys/class/backlight/*"))
+    if devs:
+        return devs[0]
+    # phones often drive the panel through an LED class device
+    devs = sorted(glob.glob("/sys/class/leds/*backlight*"))
     return devs[0] if devs else None
 
 
@@ -110,7 +114,8 @@ def set_brightness(value):
         bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
         bus.call("org.freedesktop.login1", "/org/freedesktop/login1/session/auto",
                  "org.freedesktop.login1.Session", "SetBrightness",
-                 GLib.Variant("(ssu)", ("backlight", os.path.basename(dev), level)),
+                 GLib.Variant("(ssu)", (os.path.basename(os.path.dirname(dev)),
+                                        os.path.basename(dev), level)),
                  None, Gio.DBusCallFlags.NONE, -1, None, None)
     except GLib.Error:
         if shutil.which("brightnessctl"):

@@ -31,6 +31,9 @@ class Tile(Gtk.Button):
         self.sub.set_label(sub if sub is not None else ("AN" if on else "AUS"))
 
 
+SWIPE_CLOSE = 60   # px upwards that close the control centre on the phone
+
+
 class ControlCenter(layer.Overlay):
     def __init__(self, shell):
         super().__init__(shell.app, "nothing-control", halign=Gtk.Align.END,
@@ -51,6 +54,10 @@ class ControlCenter(layer.Overlay):
         grid.attach(self.bt, 1, 0, 1, 1)
         grid.attach(self.dark, 0, 1, 1, 1)
         grid.attach(self.dnd, 1, 1, 1, 1)
+        # phone only: turn the screen with the phone
+        self.rotate = Tile("object-rotate-right-symbolic", "Drehen",
+                           lambda on: self.cfg.set("phone.auto_rotate", on))
+        grid.attach(self.rotate, 0, 2, 1, 1)
         self.panel.append(grid)
 
         # Bluetooth-Geräte (Quick Connect)
@@ -110,6 +117,9 @@ class ControlCenter(layer.Overlay):
         self.panel.append(row)
         self.cfg.connect("changed", lambda *_: self.get_visible() and self.refresh())
         self._updating = False
+        swipe = Gtk.GestureDrag()
+        swipe.connect("drag-end", self._on_swipe_end)
+        self.add_controller(swipe)
 
     def _slider(self, icon, setter, icon_click=None):
         box = Gtk.Box(spacing=10)
@@ -128,16 +138,26 @@ class ControlCenter(layer.Overlay):
         return box, scale, btn
 
     def _power_menu(self):
-        dlg = Gtk.AlertDialog(message="Computer ausschalten?",
-                              buttons=["Abbrechen", "Bereitschaft", "Neu starten", "Ausschalten"],
-                              cancel_button=0, default_button=3)
+        # phone: no standby entry (the power key turns the screen off instead)
+        if self.shell.phone:
+            choices = [("Abbrechen", None), ("Neu starten", system.reboot),
+                       ("Ausschalten", system.poweroff)]
+            message = "Telefon ausschalten?"
+        else:
+            choices = [("Abbrechen", None), ("Bereitschaft", system.suspend),
+                       ("Neu starten", system.reboot), ("Ausschalten", system.poweroff)]
+            message = "Computer ausschalten?"
+        dlg = Gtk.AlertDialog(message=message, buttons=[c[0] for c in choices],
+                              cancel_button=0, default_button=len(choices) - 1)
 
         def done(d, res):
             try:
                 idx = d.choose_finish(res)
             except GLib.Error:
                 return
-            {1: system.suspend, 2: system.reboot, 3: system.poweroff}.get(idx, lambda: None)()
+            action = choices[idx][1] if 0 <= idx < len(choices) else None
+            if action:
+                action()
         dlg.choose(None, None, done)
 
     def _set_wifi(self, on):
@@ -209,6 +229,10 @@ class ControlCenter(layer.Overlay):
         self.wifi.set_state(on, sub)
         self.dark.set_state(self.cfg.get("theme") != "light")
         self.dnd.set_state(self.cfg.get("dnd"))
+        rot = self.shell.rotation
+        self.rotate.set_visible(bool(self.shell.phone and rot and rot.available))
+        self.rotate.set_state(self.cfg.get("phone.auto_rotate", True),
+                              None if self.cfg.get("phone.auto_rotate", True) else "GESPERRT")
         self._refresh_bt()
         self._refresh_volume()
         b = system.get_brightness()
@@ -224,5 +248,16 @@ class ControlCenter(layer.Overlay):
                 s.remove_css_class("selected")
 
     def open_overlay(self):
+        # phone: pulled down from the status bar over the whole width; swiping up closes it
+        narrow = bool(self.shell.phone)
+        self.panel.set_size_request(-1 if narrow else 360, -1)
+        self.panel.set_halign(Gtk.Align.FILL if narrow else Gtk.Align.END)
+        self.panel.set_margin_top(8 if narrow else 42)
+        self.panel.set_margin_start(8 if narrow else 0)
+        self.panel.set_margin_end(8 if narrow else 10)
         self.refresh()
         super().open_overlay()
+
+    def _on_swipe_end(self, _g, dx, dy):
+        if self.shell.phone and dy < -SWIPE_CLOSE and abs(dy) > abs(dx):
+            self.close_overlay()

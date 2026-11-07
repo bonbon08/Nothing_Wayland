@@ -49,6 +49,7 @@ Eine einzige C-Datei auf Basis von wlroots 0.20 und dessen Szenengraph (`wlr_sce
 | `LYR_OVERLAY` | layer-shell „overlay“: App-Suche, Kontrollzentrum, Benachrichtigungen |
 | `LYR_DRAG` | Symbol beim Drag & Drop; folgt dem Mauszeiger und ist von der Treffersuche ausgenommen |
 | `LYR_LOCK` | Sperrbildschirm (schwarzer Hintergrund plus Lock-Surfaces) |
+| `LYR_ABOVE_LOCK` | nur der Lichtpunkt eines optischen Fingerabdrucksensors (layer-shell-Namespace `tetris-fp`); von der Treffersuche ausgenommen |
 
 **Fenster** (`struct view`) sind entweder xdg-Toplevels oder XWayland-Fenster. `v->x`/`v->y` ist immer die
 linke obere Ecke des *sichtbaren* Fensters. Die Schatten von CSD-Fenstern gleicht der xdg-Szenenbaum von
@@ -66,6 +67,18 @@ schließen. Bei aktivem Sperrbildschirm erhalten nur Lock-Surfaces Eingaben.
 
 **Prozesse:** Programme startet der Compositor über einen Double-Fork. `SIGCHLD` bleibt absichtlich auf dem
 Standardwert. Ein ignoriertes `SIGCHLD` würde vererbt und bricht dann z. B. Xwaylands Aufruf von `xkbcomp`.
+Ambient-Capabilities werden im Kind gelöscht: Android-HAL-Bibliotheken (libhybris auf Telefonen) hinterlassen
+sonst eine, und bubblewrap (glycin-Bildlader der Symbole) verweigert dann den Start.
+
+**Bildschirm aus:** Die Ein-/Aus-Taste (`XF86PowerOff`), `blank_timeout` oder der IPC-Befehl `screen` schalten
+die Panels ab, die Bildschirme bleiben dabei im Layout. Dunkel nimmt der Compositor keine Berührungen an;
+Lautstärke- und Medientasten wirken weiter, auch auf dem Sperrbildschirm. Jede Eingabe meldet sich bei
+idle-notify und startet den Countdown neu.
+
+**Bildschirmtastatur:** text-input-v3 (Textfelder der Apps) wird zu input-method-v2 (squeekboard)
+weitergereicht; virtual-keyboard-v1 liefert dessen Sondertasten. Aktiv ist die Eingabemethode, solange die
+fokussierte Fläche ein eingeschaltetes Textfeld hat, nie auf dem Sperrbildschirm (`im_update`). Die Leisten der
+Shell (`nothing-*`) bekommen ihre Exklusivzone zuerst, damit die Tastatur über der Home-Leiste liegt.
 
 **Drag & Drop:** `request_start_drag` wird gegen die Seriennummer des Pointer-Grabs geprüft, danach
 übernimmt `wlr_seat_start_pointer_drag`. Unter Wayland läuft jedes Ziehen über den Compositor, auch

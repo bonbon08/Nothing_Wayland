@@ -57,6 +57,35 @@ def build_css(cfg):
 
 :root {{ --accent-bg-color: {p['accent']}; --accent-color: {p['accent']}; --accent-fg-color: {p['on_accent']}; }}
 window.n-layer, window.n-layer > * {{ background: transparent; }}
+window.n-layer.n-phone-home {{ background: @n_bg; }}
+.n-phone-dim {{ background: transparent; }}
+window.n-phone-home.has-wallpaper .n-phone-dim {{ background: rgba(0,0,0,0.38); }}
+window.n-phone-home.has-wallpaper label {{ text-shadow: 0 1px 3px rgba(0,0,0,0.6); }}
+.n-phone-clock {{ font-size: 72px; font-weight: 300; letter-spacing: -1px; }}
+.n-phone-status {{ font-size: 14px; }}
+.n-home-hit {{ background: transparent; border: none; box-shadow: none; padding: 0;
+  min-width: 140px; min-height: 30px; }}
+.n-key {{ min-width: 0; min-height: 50px; padding: 0; margin: 0; border-radius: 12px;
+  background: @n_card; color: @n_fg; border: none; box-shadow: none; font-size: 16px; }}
+.n-key:active {{ background: @n_card_hi; }}
+.n-key.n-key-accent {{ background: @n_accent; color: @n_on_accent; }}
+.n-phone-search {{ background: @n_card; color: alpha(@n_fg, 0.7); border: none; box-shadow: none;
+  border-radius: 999px; padding: 12px 18px; }}
+.n-osd {{ background: @n_surface; color: @n_fg; border-radius: 999px; padding: 12px 20px;
+  border: 1px solid alpha(@n_fg, 0.12); box-shadow: 0 4px 16px rgba(0,0,0,0.35); }}
+levelbar.n-osd-bar trough {{ min-height: 6px; border-radius: 99px; background: alpha(@n_fg, 0.15);
+  border: none; }}
+levelbar.n-osd-bar block.filled {{ background: @n_fg; border-radius: 99px; border: none; }}
+levelbar.n-osd-bar block.empty {{ background: transparent; border: none; }}
+.n-power-menu {{ background: @n_surface; border-radius: 28px; padding: 18px; }}
+.n-power-item {{ background: @n_card; color: @n_fg; border: none; box-shadow: none;
+  border-radius: 18px; padding: 16px 18px; font-size: 16px; }}
+.n-power-item:active {{ background: @n_card_hi; }}
+.n-osk-hide {{ background: @n_card; color: @n_fg; border: none; box-shadow: none;
+  border-radius: 999px; min-width: 44px; min-height: 30px; padding: 0 10px; }}
+.n-pill-button {{ background: @n_card_hi; color: @n_fg; border: none; box-shadow: none;
+  border-radius: 999px; padding: 10px 24px; }}
+.n-home-pill {{ background: @n_fg; border-radius: 999px; min-width: 120px; min-height: 5px; }}
 .n-root {{ color: @n_fg; font-family: "NType 82", "Adwaita Sans", "Inter", sans-serif; }}
 .n-mono, .n-caps {{ font-family: "Space Mono", "Adwaita Mono", "JetBrains Mono", monospace; }}
 .n-caps {{ font-size: 10.5px; letter-spacing: 1.6px; color: @n_muted; }}
@@ -146,7 +175,7 @@ textview.n-notes, textview.n-notes text {{ background: transparent; color: @n_fg
 scale.n-slider:focus-visible, scale.n-slider *:focus-visible {{ outline: none; }}
 scale.n-slider trough {{ outline: none; }}
 .n-app-tile {{ background: transparent; border: none; box-shadow: none; border-radius: 20px; padding: 10px 4px; }}
-.n-app-tile:hover, flowboxchild:selected .n-app-tile {{ background: @n_card_hi; }}
+.n-app-tile:hover, flowboxchild:selected .n-app-tile, .n-app-tile.pressed {{ background: @n_card_hi; }}
 flowboxchild {{ background: transparent; padding: 0; border-radius: 20px; }}
 flowboxchild:selected {{ background: transparent; }}
 .n-app-tile label {{ font-size: 11.5px; }}

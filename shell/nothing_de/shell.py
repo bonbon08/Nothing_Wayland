@@ -25,6 +25,8 @@ from .notifications import Notifications  # noqa: E402
 from .theme import ThemeManager  # noqa: E402
 from .tray import StatusNotifierWatcher  # noqa: E402
 from .overview import Overview  # noqa: E402
+from .phone import PhoneHome, PhoneNav, PhoneStatus  # noqa: E402
+from .phone_extras import Osd, PowerMenu, Rotation  # noqa: E402
 
 
 class Shell:
@@ -37,6 +39,9 @@ class Shell:
         self.per_monitor = {}
         self.docks = {}
         self._output_names = None
+        self.phone = None          # True: phone layout, False: desktop; set by sync_monitors
+        self._fitted = set()       # window ids already maximised on the phone
+        self._relock_pending = False
         self.launcher = Launcher(self)
         self.control = ControlCenter(self)
         self.notifications = Notifications(self)
@@ -45,6 +50,9 @@ class Shell:
         self.tray_watcher = StatusNotifierWatcher()
         self.tray_watcher.start()
         self.overview = Overview(self)
+        self.osd = Osd(self)
+        self.power_menu = PowerMenu(self)
+        self.rotation = None       # phone: automatic rotation (phone_session_start)
 
         self.wm.connect("action", lambda _w, name: self.run_action(name))
         self.wm.connect("connected", lambda *_: self.push_wm_config())
@@ -58,12 +66,83 @@ class Shell:
         monitors = Gdk.Display.get_default().get_monitors()
         monitors.connect("items-changed", lambda *_: self.sync_monitors())
         self.sync_monitors()
+        if self.phone:
+            self.phone_session_start()
         self.autostart()
 
+    # ------------------------------------------------------------- phone
+    def _first_start(self, what):
+        """True once per compositor session (the shell is restarted when it crashes)."""
+        session = os.environ.get("NOTHING_WM_PID") or os.environ.get("WAYLAND_DISPLAY", "")
+        flag = os.path.join(GLib.get_user_runtime_dir(), f"nothing-{what}-{session}")
+        if os.path.exists(flag):
+            return False
+        open(flag, "w").close()
+        return True
+
+    def phone_session_start(self):
+        first = self._first_start("phone")
+        # a phone starts locked (the lock screen has its own keyboard); after a crash of the
+        # shell only if the session was locked: the compositor keeps that state and tells
+        # with its first state message (_on_wm_state)
+        if first:
+            GLib.timeout_add_seconds(2, lambda: (self.lockscreen.lock(), False)[1])
+        else:
+            self._relock_pending = True
+        self.start_osk(restart=first)
+        self.rotation = Rotation(self)
+        self.cfg.connect("changed", lambda *_: self.rotation.apply())
+
+    def start_osk(self, restart=False):
+        """On-screen keyboard for the apps: squeekboard (input-method protocol). It shows
+        itself when a text field gets the focus, with the GNOME a11y switch on."""
+        if not shutil.which("squeekboard"):
+            return
+        try:
+            a11y = Gio.Settings.new("org.gnome.desktop.a11y.applications")
+            if not a11y.get_boolean("screen-keyboard-enabled"):
+                a11y.set_boolean("screen-keyboard-enabled", True)
+        except (TypeError, GLib.Error):
+            pass
+        # its systemd unit (from Phosh) starts it in the user's session environment; a
+        # squeekboard from an earlier session would still talk to the old compositor
+        spawn(["systemctl", "--user", "restart" if restart else "start",
+               "mobi.phosh.OSK.service"])
+
+    def close_overlays(self):
+        for overlay in (self.launcher, self.control, self.overview, self.power_menu):
+            overlay.close_overlay()
+
     # ---------------------------------------------------------- monitors
+    def _phone_form(self, monitor):
+        """Phone layout for a portrait screen. "form" in the config or NOTHING_FORM overrides."""
+        form = os.environ.get("NOTHING_FORM") or self.cfg.get("form") or "auto"
+        if form in ("phone", "desktop"):
+            return form == "phone"
+        # a phone turned on its side stays a phone
+        if self.rotation and self.rotation.rotated:
+            return True
+        geo = monitor.get_geometry()
+        return geo.height > geo.width
+
     def sync_monitors(self):
         monitors = Gdk.Display.get_default().get_monitors()
         current = [monitors.get_item(i) for i in range(monitors.get_n_items())]
+        if current:
+            phone = self._phone_form(current[0])
+            if phone != self.phone:
+                # layout switched (rotation, config): rebuild everything
+                self.phone = phone
+                # apps started from here (the settings app) take the same layout
+                os.environ["NOTHING_LAYOUT"] = "phone" if phone else "desktop"
+                for overlay in (self.launcher, self.control, self.overview, self.power_menu):
+                    overlay.respect_bars(phone)
+                self.push_wm_config()
+                for mon in list(self.per_monitor):
+                    for win in self.per_monitor.pop(mon):
+                        win.destroy()
+                for mon in list(self.docks):
+                    self.docks.pop(mon).shutdown()
         for mon in list(self.per_monitor):
             if mon not in current:
                 for win in self.per_monitor.pop(mon):
@@ -72,13 +151,17 @@ class Shell:
             if mon in self.per_monitor:
                 continue
             primary = i == 0
-            wins = [DesktopWindow(self, mon, primary), TopBar(self, mon)]
+            if self.phone:
+                wins = [PhoneHome(self, mon), PhoneStatus(self, mon), PhoneNav(self, mon)]
+            else:
+                wins = [DesktopWindow(self, mon, primary), TopBar(self, mon)]
             self.per_monitor[mon] = wins
             for w in wins:
                 w.present()
-        for i, mon in enumerate(current):
-            self.per_monitor[mon][0].set_primary(i == 0)
-        wanted = current if self.cfg.get("dock.all_monitors") else current[:1]
+        if not self.phone:
+            for i, mon in enumerate(current):
+                self.per_monitor[mon][0].set_primary(i == 0)
+        wanted = [] if self.phone else current if self.cfg.get("dock.all_monitors") else current[:1]
         for mon in list(self.docks):
             if mon not in wanted:
                 self.docks.pop(mon).shutdown()
@@ -109,11 +192,16 @@ class Shell:
             self.wm.config("kb_layout", kb.get("layout"))
         self.wm.config("kb_variant", kb.get("variant") or "")
         self.wm.config("kb_options", kb.get("options") or "")
+        # phone: the screen goes off after a while without touches (0 = never)
+        self.wm.config("blank_timeout",
+                       int(self.cfg.get("phone.screen_timeout") or 0) if self.phone else 0)
         self.push_outputs()
 
     def push_outputs(self):
         # display.scale applies to every screen without a value of its own
         default = self.cfg.get("display.scale") or 1.0
+        if self.phone:
+            default = self.cfg.get("phone.scale") or 2.0
         saved = self.cfg.get("outputs") or {}
         for name in {o["name"] for o in self.wm.state.get("outputs", [])} | set(saved):
             out = saved.get(name, {})
@@ -126,12 +214,33 @@ class Shell:
                              int(pos.get("y", 0)))
 
     def _on_wm_state(self, _wm, state):
+        if self._relock_pending:
+            self._relock_pending = False
+            if state.get("locked"):
+                self.lockscreen.lock()
+        if self.rotation and state.get("locked") != getattr(self, "_was_locked", None):
+            # the lock screen stands upright, unlocking turns back to the sensor's direction
+            self._was_locked = state.get("locked")
+            self.rotation.apply()
         # a screen was plugged in: its saved settings apply now
         names = {o["name"] for o in state.get("outputs", [])}
         if names != self._output_names:
             self._output_names = names
             self.push_outputs()
         self.sync_ontop()
+        self.phone_fit_windows(state)
+
+    def phone_fit_windows(self, state):
+        """Phone: a new window opens maximised, so it fills the space between the bars
+        (fullscreen would cover the home bar). Once per window, the user can still unmaximise."""
+        if not self.phone:
+            return
+        for w in state.get("windows", []):
+            if w["id"] in self._fitted:
+                continue
+            self._fitted.add(w["id"])
+            if not w.get("maximized") and not w.get("fullscreen"):
+                self.wm.send("maximize", w["id"])
 
     def sync_ontop(self):
         """Bring the always-on-top flag of every window in line with the config.
@@ -181,6 +290,21 @@ class Shell:
             self.spawn_settings()
         elif name == "lock":
             self.lockscreen.lock()
+        elif name == "osd_volume":
+            self.osd.volume()
+        elif name == "osd_brightness":
+            self.osd.brightness()
+        elif name == "power_menu":
+            if self.lockscreen.instance is not None:
+                self.lockscreen.show_power_menu()
+            else:
+                self.close_overlays()
+                self.power_menu.open_overlay()
+        elif name == "screen_off":
+            # power key or timeout: a phone locks with the screen
+            self.close_overlays()
+            if self.phone:
+                self.lockscreen.lock()
         elif name == "screenshot":
             self.screenshot()
 

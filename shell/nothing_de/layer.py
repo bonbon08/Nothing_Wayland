@@ -105,6 +105,12 @@ class Overlay(Gtk.ApplicationWindow):
             return True
         return False
 
+    def respect_bars(self, on):
+        """Phone: leave the status bar and the home bar visible and usable (exclusive zones),
+        instead of covering the whole screen."""
+        if supported() and LS.is_layer_window(self):
+            LS.set_exclusive_zone(self, 0 if on else -1)
+
     def toggle(self):
         if self.get_visible():
             self.close_overlay()
@@ -115,4 +121,6 @@ class Overlay(Gtk.ApplicationWindow):
         self.present()
 
     def close_overlay(self):
+        # an entry keeping the focus would bring up the on-screen keyboard elsewhere
+        self.set_focus(None)
         self.set_visible(False)
