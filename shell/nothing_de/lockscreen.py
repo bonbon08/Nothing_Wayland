@@ -10,7 +10,7 @@ import subprocess
 import threading
 
 import gi
-from gi.repository import Gdk, GLib, Gtk
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 from . import dotmatrix
 from .widgets import MONTHS, WEEKDAYS
@@ -38,9 +38,12 @@ KEY_ROWS = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", "!@#$%&*?-_.,/"]
 
 
 def _on_screen_keyboard(entry):
-    """Keys that type into the password entry; ⌫ deletes, ↵ submits."""
-    board = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, halign=Gtk.Align.CENTER)
+    """Keys that type into the password entry; ⌫ deletes, ↵ submits. Rows take the width
+    of the screen, like a phone keyboard."""
+    board = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
     board.set_margin_top(18)
+    board.set_margin_start(6)
+    board.set_margin_end(6)
 
     def press(label, action):
         key = Gtk.Button(label=label)
@@ -52,19 +55,58 @@ def _on_screen_keyboard(entry):
     def typed(ch):
         return lambda: entry.set_text(entry.get_text() + ch)
 
+    widest = len(KEY_ROWS[0])
     for row in KEY_ROWS:
-        line = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+        # shorter rows are indented by half a key per missing key, as on a real keyboard
+        line = Gtk.Box(spacing=5, homogeneous=True, halign=Gtk.Align.FILL)
+        pad = max(0, widest - len(row)) * 0.5
+        line.set_margin_start(int(pad * 46))
+        line.set_margin_end(int(pad * 46))
         for ch in row:
             line.append(press(ch, typed(ch)))
         board.append(line)
-    bottom = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
-    bottom.append(press("⌫", lambda: entry.set_text(entry.get_text()[:-1])))
+    bottom = Gtk.Box(spacing=5)
+    back = press("⌫", lambda: entry.set_text(entry.get_text()[:-1]))
+    back.set_size_request(80, -1)
+    bottom.append(back)
     space = press("␣", typed(" "))
-    space.set_size_request(180, -1)
+    space.set_hexpand(True)
     bottom.append(space)
-    bottom.append(press("↵", lambda: entry.emit("activate")))
+    enter = press("↵", lambda: entry.emit("activate"))
+    enter.set_size_request(80, -1)
+    enter.add_css_class("n-key-accent")
+    bottom.append(enter)
     board.append(bottom)
     return board
+
+
+class Logind:
+    """The login session in logind: LockedHint follows our lock screen (the fingerprint
+    service of the phone port only scans while it is set), and logind's Unlock (e.g.
+    `loginctl unlock-session` after a fingerprint match) and Lock signals are followed."""
+
+    def __init__(self, on_lock, on_unlock):
+        self.bus = self.path = None
+        try:
+            self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+            res = self.bus.call_sync("org.freedesktop.login1", "/org/freedesktop/login1",
+                                     "org.freedesktop.login1.Manager", "GetSessionByPID",
+                                     GLib.Variant("(u)", (os.getpid(),)),
+                                     GLib.VariantType("(o)"), Gio.DBusCallFlags.NONE, 2000)
+            self.path = res.unpack()[0]
+        except GLib.Error:
+            return
+        for signal, cb in (("Lock", on_lock), ("Unlock", on_unlock)):
+            self.bus.signal_subscribe("org.freedesktop.login1", "org.freedesktop.login1.Session",
+                                      signal, self.path, None, Gio.DBusSignalFlags.NONE,
+                                      lambda *_a, cb=cb: cb())
+
+    def set_locked_hint(self, locked):
+        if not self.path:
+            return
+        self.bus.call("org.freedesktop.login1", self.path, "org.freedesktop.login1.Session",
+                      "SetLockedHint", GLib.Variant("(b)", (locked,)), None,
+                      Gio.DBusCallFlags.NONE, -1, None, None)
 
 
 class LockScreen:
@@ -73,6 +115,12 @@ class LockScreen:
         self.instance = None
         self.windows = []
         self.user = getpass.getuser()
+        self.logind = Logind(self.lock, self.unlock)
+
+    def unlock(self):
+        """Unlock without a password (logind's Unlock, after a fingerprint match)."""
+        if self.instance is not None:
+            self.instance.unlock()
 
     @property
     def available(self):
@@ -99,6 +147,7 @@ class LockScreen:
         if not self.instance.lock():
             self._cleanup()
             return
+        self.logind.set_locked_hint(True)
         if not has_monitor_signal:
             monitors = Gdk.Display.get_default().get_monitors()
             for i in range(monitors.get_n_items()):
@@ -109,6 +158,7 @@ class LockScreen:
             w.destroy()
         self.windows = []
         self.instance = None
+        self.logind.set_locked_hint(False)
 
     def _window_for(self, monitor):
         win = Gtk.Window(application=self.shell.app)
@@ -126,12 +176,20 @@ class LockScreen:
         user.set_margin_top(40)
         entry = Gtk.PasswordEntry(show_peek_icon=True, placeholder_text="Passwort")
         entry.set_halign(Gtk.Align.CENTER)
+        # GTK's simple input method instead of the compositor's (text-input): the lock
+        # screen brings its own keys, and a Wayland input context left behind by the
+        # destroyed entry would pop up the on-screen keyboard on the shell's next window
+        entry.get_delegate().set_property("im-module", "gtk-im-context-simple")
         status = Gtk.Label()
         status.add_css_class("n-accent-text")
         for w in (day, clock, user, entry, status):
             box.append(w)
         if self.shell.phone:
             # no hardware keyboard on the phone: type the password on screen
+            box.set_halign(Gtk.Align.FILL)
+            box.set_valign(Gtk.Align.END)
+            box.set_margin_bottom(28)
+            entry.set_size_request(300, -1)
             box.append(_on_screen_keyboard(entry))
         win.set_child(box)
 

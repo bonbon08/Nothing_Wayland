@@ -51,6 +51,16 @@ class PhoneHome(Gtk.ApplicationWindow):
         self.clock.add_css_class("n-phone-clock")
         root.append(self.clock)
 
+        # search: opens the launcher (apps, calculator), the on-screen keyboard comes with it
+        search = Gtk.Button()
+        search.add_css_class("n-phone-search")
+        row = Gtk.Box(spacing=10)
+        row.append(Gtk.Image(icon_name="system-search-symbolic"))
+        row.append(Gtk.Label(label="Apps suchen", xalign=0))
+        search.set_child(row)
+        search.connect("clicked", lambda *_: shell.run_action("launcher"))
+        root.append(search)
+
         self.flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,
                                 max_children_per_line=COLUMNS, min_children_per_line=COLUMNS,
                                 homogeneous=True, row_spacing=6, column_spacing=4,
@@ -101,8 +111,30 @@ class PhoneHome(Gtk.ApplicationWindow):
             launch_app(app)
 
 
+SWIPE_DOWN = 24       # px downwards on the status bar: control centre
+DRAG_CLAIM = 8        # px of movement after which a touch counts as a swipe, not a tap
+
+
+def _swipe(widget, on_end, on_update=None):
+    """Swipe on a whole bar, in the capture phase (buttons inside would take the touch).
+    Once the finger has moved, the touch belongs to the swipe: no click follows."""
+    drag = Gtk.GestureDrag()
+    drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+    def update(gesture, dx, dy):
+        if max(abs(dx), abs(dy)) > DRAG_CLAIM:
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        if on_update:
+            on_update(dx, dy)
+    drag.connect("drag-update", update)
+    drag.connect("drag-end", lambda _g, dx, dy: on_end(dx, dy))
+    widget.add_controller(drag)
+    return drag
+
+
 class PhoneStatus(Gtk.ApplicationWindow):
-    """Statusleiste oben: Uhrzeit links, Netz und Akku rechts. Tippen öffnet das Kontrollzentrum."""
+    """Statusleiste oben: Uhrzeit links, Netz und Akku rechts. Tippen oder nach unten wischen
+    öffnet das Kontrollzentrum."""
 
     def __init__(self, shell, monitor):
         super().__init__(application=shell.app)
@@ -133,6 +165,7 @@ class PhoneStatus(Gtk.ApplicationWindow):
         click = Gtk.GestureClick()
         click.connect("released", lambda *_: shell.run_action("control"))
         row.add_controller(click)
+        _swipe(self, self._on_drag_end)
         self.set_child(row)
 
         self.net = system.Network(self._update_net)
@@ -140,6 +173,10 @@ class PhoneStatus(Gtk.ApplicationWindow):
         self._tick()
         GLib.timeout_add_seconds(5, self._slow_tick)
         self._slow_tick()
+
+    def _on_drag_end(self, _dx, dy):
+        if dy >= SWIPE_DOWN and not self.shell.control.get_visible():
+            self.shell.run_action("control")
 
     def _tick(self):
         self.clock.set_label(datetime.datetime.now().strftime("%H:%M"))
@@ -186,17 +223,26 @@ class PhoneNav(Gtk.ApplicationWindow):
         pill.set_halign(Gtk.Align.CENTER)
         pill.set_valign(Gtk.Align.CENTER)
         btn.set_child(pill)
-        btn.connect("clicked", lambda *_: shell.wm.show_desktop())
+        btn.connect("clicked", lambda *_: self._home())
         self.set_child(btn)
         self.set_size_request(-1, 40)
-        # on the window, in the capture phase: the button would otherwise take the touch
-        drag = Gtk.GestureDrag()
-        drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        drag.connect("drag-end", self._on_drag_end)
-        self.add_controller(drag)
+        self.pill = pill
+        _swipe(self, self._on_drag_end, self._on_drag_update)
 
-    def _on_drag_end(self, _gesture, _dx, dy):
+    def _home(self):
+        self.shell.close_overlays()
+        self.shell.wm.show_desktop()
+
+    def _on_drag_update(self, _dx, dy):
+        # the pill follows the finger a little and widens towards the overview
+        self.pill.set_margin_bottom(int(min(14, max(0, -dy / 10))))
+        self.pill.set_size_request(120 + int(min(80, max(0, -dy - SWIPE_HOME) / 2)), -1)
+
+    def _on_drag_end(self, _dx, dy):
+        self.pill.set_margin_bottom(0)
+        self.pill.set_size_request(-1, -1)
         if dy <= -SWIPE_OVERVIEW:
+            self.shell.close_overlays()
             self.shell.run_action("overview")
         elif dy <= -SWIPE_HOME:
-            self.shell.wm.show_desktop()
+            self._home()

@@ -40,6 +40,7 @@ class Shell:
         self._output_names = None
         self.phone = None          # True: phone layout, False: desktop; set by sync_monitors
         self._fitted = set()       # window ids already maximised on the phone
+        self._relock_pending = False
         self.launcher = Launcher(self)
         self.control = ControlCenter(self)
         self.notifications = Notifications(self)
@@ -62,9 +63,49 @@ class Shell:
         monitors.connect("items-changed", lambda *_: self.sync_monitors())
         self.sync_monitors()
         if self.phone:
-            # a phone starts locked; the on-screen keyboard types the password
-            GLib.timeout_add_seconds(2, lambda: (self.lockscreen.lock(), False)[1])
+            self.phone_session_start()
         self.autostart()
+
+    # ------------------------------------------------------------- phone
+    def _first_start(self, what):
+        """True once per compositor session (the shell is restarted when it crashes)."""
+        session = os.environ.get("NOTHING_WM_PID") or os.environ.get("WAYLAND_DISPLAY", "")
+        flag = os.path.join(GLib.get_user_runtime_dir(), f"nothing-{what}-{session}")
+        if os.path.exists(flag):
+            return False
+        open(flag, "w").close()
+        return True
+
+    def phone_session_start(self):
+        first = self._first_start("phone")
+        # a phone starts locked (the lock screen has its own keyboard); after a crash of the
+        # shell only if the session was locked: the compositor keeps that state and tells
+        # with its first state message (_on_wm_state)
+        if first:
+            GLib.timeout_add_seconds(2, lambda: (self.lockscreen.lock(), False)[1])
+        else:
+            self._relock_pending = True
+        self.start_osk(restart=first)
+
+    def start_osk(self, restart=False):
+        """On-screen keyboard for the apps: squeekboard (input-method protocol). It shows
+        itself when a text field gets the focus, with the GNOME a11y switch on."""
+        if not shutil.which("squeekboard"):
+            return
+        try:
+            a11y = Gio.Settings.new("org.gnome.desktop.a11y.applications")
+            if not a11y.get_boolean("screen-keyboard-enabled"):
+                a11y.set_boolean("screen-keyboard-enabled", True)
+        except (TypeError, GLib.Error):
+            pass
+        # its systemd unit (from Phosh) starts it in the user's session environment; a
+        # squeekboard from an earlier session would still talk to the old compositor
+        spawn(["systemctl", "--user", "restart" if restart else "start",
+               "mobi.phosh.OSK.service"])
+
+    def close_overlays(self):
+        for overlay in (self.launcher, self.control, self.overview):
+            overlay.close_overlay()
 
     # ---------------------------------------------------------- monitors
     def _phone_form(self, monitor):
@@ -83,6 +124,9 @@ class Shell:
             if phone != self.phone:
                 # layout switched (rotation, config): rebuild everything
                 self.phone = phone
+                for overlay in (self.launcher, self.control, self.overview):
+                    overlay.respect_bars(phone)
+                self.push_wm_config()
                 for mon in list(self.per_monitor):
                     for win in self.per_monitor.pop(mon):
                         win.destroy()
@@ -137,6 +181,9 @@ class Shell:
             self.wm.config("kb_layout", kb.get("layout"))
         self.wm.config("kb_variant", kb.get("variant") or "")
         self.wm.config("kb_options", kb.get("options") or "")
+        # phone: the screen goes off after a while without touches (0 = never)
+        self.wm.config("blank_timeout",
+                       int(self.cfg.get("phone.screen_timeout") or 0) if self.phone else 0)
         self.push_outputs()
 
     def push_outputs(self):
@@ -156,6 +203,10 @@ class Shell:
                              int(pos.get("y", 0)))
 
     def _on_wm_state(self, _wm, state):
+        if self._relock_pending:
+            self._relock_pending = False
+            if state.get("locked"):
+                self.lockscreen.lock()
         # a screen was plugged in: its saved settings apply now
         names = {o["name"] for o in state.get("outputs", [])}
         if names != self._output_names:
@@ -224,6 +275,11 @@ class Shell:
             self.spawn_settings()
         elif name == "lock":
             self.lockscreen.lock()
+        elif name == "screen_off":
+            # power key or timeout: a phone locks with the screen
+            self.close_overlays()
+            if self.phone:
+                self.lockscreen.lock()
         elif name == "screenshot":
             self.screenshot()
 

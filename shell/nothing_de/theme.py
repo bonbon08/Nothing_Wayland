@@ -62,9 +62,14 @@ window.n-layer.n-phone-home {{ background: @n_bg; }}
 .n-phone-status {{ font-size: 14px; }}
 .n-home-hit {{ background: transparent; border: none; box-shadow: none; padding: 0;
   min-width: 140px; min-height: 30px; }}
-.n-key {{ min-width: 30px; min-height: 46px; padding: 0; margin: 0; border-radius: 12px;
+.n-key {{ min-width: 0; min-height: 50px; padding: 0; margin: 0; border-radius: 12px;
   background: @n_card; color: @n_fg; border: none; box-shadow: none; font-size: 16px; }}
 .n-key:active {{ background: @n_card_hi; }}
+.n-key.n-key-accent {{ background: @n_accent; color: @n_on_accent; }}
+.n-phone-search {{ background: @n_card; color: alpha(@n_fg, 0.7); border: none; box-shadow: none;
+  border-radius: 999px; padding: 12px 18px; }}
+.n-pill-button {{ background: @n_card_hi; color: @n_fg; border: none; box-shadow: none;
+  border-radius: 999px; padding: 10px 24px; }}
 .n-home-pill {{ background: @n_fg; border-radius: 999px; min-width: 120px; min-height: 5px; }}
 .n-root {{ color: @n_fg; font-family: "NType 82", "Adwaita Sans", "Inter", sans-serif; }}
 .n-mono, .n-caps {{ font-family: "Space Mono", "Adwaita Mono", "JetBrains Mono", monospace; }}

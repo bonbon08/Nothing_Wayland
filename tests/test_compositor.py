@@ -175,6 +175,30 @@ def test_config_command_changes_workspace_count(start_session):
     assert s.state()["workspaces"] == 6
 
 
+def test_screen_command_switches_the_screen_off_and_on(start_session):
+    s = start_session()
+    assert s.state()["screen_off"] is False
+    events = s.ipc("subscribe", "screen off")
+    assert {"event": "action", "name": "screen_off"} in events
+    assert s.state()["screen_off"] is True
+    # the outputs stay in the layout while the screen is dark
+    assert s.state()["outputs"][0]["enabled"] is True
+    s.ipc("screen toggle")
+    assert s.state()["screen_off"] is False
+
+
+def test_blank_timeout_turns_the_screen_off_without_input(start_session):
+    s = start_session()
+    s.ipc("config blank_timeout 1")
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not s.state()["screen_off"]:
+        time.sleep(0.3)
+    assert s.state()["screen_off"] is True
+    s.ipc("config blank_timeout 0", "screen on")
+    time.sleep(1.5)
+    assert s.state()["screen_off"] is False
+
+
 def test_exit_command_ends_the_session(start_session):
     s = start_session()
     s.ipc("exit")
