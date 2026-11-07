@@ -14,7 +14,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import dotmatrix, thumbs  # noqa: E402
+from . import dotmatrix, settings_net, thumbs  # noqa: E402
 from .apps import app_icon  # noqa: E402
 from .config import ACCENTS, WALLPAPER_DIR, get_config  # noqa: E402
 from .ipc import WindowManager  # noqa: E402
@@ -24,6 +24,10 @@ from .widgets import fetch_json  # noqa: E402
 
 PAGES = [
     ("appearance", "Darstellung", "applications-graphics-symbolic"),
+    ("wifi", "WLAN", "network-wireless-symbolic"),
+    ("wired", "LAN", "network-wired-symbolic"),
+    ("bluetooth", "Bluetooth", "bluetooth-active-symbolic"),
+    ("mobile", "Mobilfunk", "network-cellular-signal-good-symbolic"),
     ("widgets", "Widgets", "view-grid-symbolic"),
     ("dock", "Dock & Leiste", "user-desktop-symbolic"),
     ("displays", "Bildschirme", "video-display-symbolic"),
@@ -36,8 +40,11 @@ PAGES = [
 ]
 
 # phone layout: an own page first, without the desktop-only pages (widgets, dock, workspaces)
-PHONE_PAGES = [("phone", "Telefon", "phone-symbolic")] + \
-    [p for p in PAGES if p[0] not in ("widgets", "dock", "workspaces")]
+# connections first, as on a phone
+_NET = ("wifi", "mobile", "bluetooth", "wired")
+PHONE_PAGES = [p for pid in _NET for p in PAGES if p[0] == pid] + \
+    [("phone", "Telefon", "phone-symbolic")] + \
+    [p for p in PAGES if p[0] not in ("widgets", "dock", "workspaces") + _NET]
 
 PHONE = False   # set in main(): the shell shows its phone layout
 
@@ -48,6 +55,11 @@ def is_phone(cfg):
     form = os.environ.get("NOTHING_FORM") or cfg.get("form") or "auto"
     if form in ("phone", "desktop"):
         return form == "phone"
+    # started from the shell: it says which layout it shows (the screen list can still be
+    # empty this early)
+    layout = os.environ.get("NOTHING_LAYOUT")
+    if layout in ("phone", "desktop"):
+        return layout == "phone"
     display = Gdk.Display.get_default()
     monitors = display.get_monitors() if display else None
     if not monitors or monitors.get_n_items() == 0:
@@ -1129,7 +1141,9 @@ class SettingsWindow(Adw.ApplicationWindow):
         split.set_content(self.content_page)
         self.split = split
 
-        builders = {"phone": PhonePage, "appearance": AppearancePage, "widgets": WidgetsPage, "dock": DockPage,
+        builders = {"phone": PhonePage, "appearance": AppearancePage,
+                    "wifi": settings_net.WifiPage, "wired": settings_net.WiredPage,
+                    "bluetooth": settings_net.BluetoothPage, "mobile": settings_net.MobilePage, "widgets": WidgetsPage, "dock": DockPage,
                     "displays": DisplaysPage,
                     "workspaces": WorkspacesPage, "apps": DefaultAppsPage, "keyboard": KeyboardPage,
                     "users": UsersPage, "accounts": AccountsPage, "about": AboutPage}

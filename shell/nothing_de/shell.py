@@ -133,6 +133,8 @@ class Shell:
             if phone != self.phone:
                 # layout switched (rotation, config): rebuild everything
                 self.phone = phone
+                # apps started from here (the settings app) take the same layout
+                os.environ["NOTHING_LAYOUT"] = "phone" if phone else "desktop"
                 for overlay in (self.launcher, self.control, self.overview, self.power_menu):
                     overlay.respect_bars(phone)
                 self.push_wm_config()
