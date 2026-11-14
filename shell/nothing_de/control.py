@@ -58,6 +58,9 @@ class ControlCenter(layer.Overlay):
         self.rotate = Tile("object-rotate-right-symbolic", "Drehen",
                            lambda on: self.cfg.set("phone.auto_rotate", on))
         grid.attach(self.rotate, 0, 2, 1, 1)
+        # phone only: the flash LED as torch
+        self.torch = Tile("nothing-torch-symbolic", "Taschenlampe", self._set_torch)
+        grid.attach(self.torch, 1, 2, 1, 1)
         self.panel.append(grid)
 
         # Bluetooth-Geräte (Quick Connect)
@@ -168,6 +171,18 @@ class ControlCenter(layer.Overlay):
         system.set_bluetooth(on, lambda: GLib.timeout_add(500, self._refresh_bt))
         self.bt.set_state(on)
 
+    def _set_torch(self, on):
+        system.set_torch(on)
+        self.torch.set_state(on)
+        GLib.timeout_add(300, self._refresh_torch)
+
+    def _refresh_torch(self):
+        state = system.get_torch()
+        self.torch.set_visible(state is not None)
+        if state is not None:
+            self.torch.set_state(state)
+        return False
+
     def _refresh_bt(self):
         def got(state):
             self.bt.set_sensitive(state is not None)
@@ -233,6 +248,7 @@ class ControlCenter(layer.Overlay):
         self.rotate.set_visible(bool(self.shell.phone and rot and rot.available))
         self.rotate.set_state(self.cfg.get("phone.auto_rotate", True),
                               None if self.cfg.get("phone.auto_rotate", True) else "GESPERRT")
+        self._refresh_torch()
         self._refresh_bt()
         self._refresh_volume()
         b = system.get_brightness()

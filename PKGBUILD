@@ -31,4 +31,5 @@ package() {
   install -Dm644 data/applications/nothing-settings.desktop "$pkgdir/usr/share/applications/nothing-settings.desktop"
   install -Dm644 data/sessions/nothing.desktop "$pkgdir/usr/share/wayland-sessions/nothing.desktop"
   install -Dm644 data/portals/nothing-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/nothing-portals.conf"
+  install -Dm644 data/icons/nothing-torch-symbolic.svg "$pkgdir/usr/share/icons/hicolor/scalable/actions/nothing-torch-symbolic.svg"
 }

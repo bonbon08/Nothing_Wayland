@@ -122,6 +122,46 @@ def set_brightness(value):
             run_async(["brightnessctl", "set", str(level)])
 
 
+# ------------------------------------------------------------------ torch
+def _torch():
+    """The flash LED used as torch (phones: an LED class device *:torch or *:flash)."""
+    devs = sorted(glob.glob("/sys/class/leds/*:torch")) or sorted(glob.glob("/sys/class/leds/*:flash"))
+    return devs[0] if devs else None
+
+
+def get_torch():
+    """True/False, or None without a torch LED."""
+    dev = _torch()
+    if not dev:
+        return None
+    try:
+        with open(os.path.join(dev, "brightness")) as f:
+            return int(f.read()) > 0
+    except (OSError, ValueError):
+        return None
+
+
+def set_torch(on):
+    """Like set_brightness through logind (the leds subsystem), full torch brightness."""
+    dev = _torch()
+    if not dev:
+        return
+    try:
+        with open(os.path.join(dev, "max_brightness")) as f:
+            level = int(f.read()) if on else 0
+    except (OSError, ValueError):
+        return
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        bus.call("org.freedesktop.login1", "/org/freedesktop/login1/session/auto",
+                 "org.freedesktop.login1.Session", "SetBrightness",
+                 GLib.Variant("(ssu)", ("leds", os.path.basename(dev), level)),
+                 None, Gio.DBusCallFlags.NONE, -1, None, None)
+    except GLib.Error:
+        if shutil.which("brightnessctl"):
+            run_async(["brightnessctl", "-d", os.path.basename(dev), "set", str(level)])
+
+
 # ---------------------------------------------------------------- network
 class Network:
     def __init__(self, on_change):
