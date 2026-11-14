@@ -97,10 +97,36 @@ def toast(widget, text):
 
 
 # ======================================================================
+FORMS = [("auto", "Automatisch"), ("phone", "Telefon"), ("desktop", "Desktop")]
+
+
+def form_group(cfg):
+    """Ansicht: Telefon- oder Desktop-Oberfläche (config "form"). Returns the group and the row."""
+    g = group("Ansicht", "„Automatisch“ nimmt die Telefon-Ansicht für hochkante Bildschirme. "
+                         "„Desktop“ zeigt Leiste und Dock, etwa mit externem Monitor.")
+    row = Adw.ComboRow(title="Oberfläche", model=Gtk.StringList.new([f[1] for f in FORMS]))
+    row.connect("notify::selected", lambda r, _p: cfg.set("form", FORMS[r.get_selected()][0]))
+    g.add(row)
+    return g, row
+
+
+def sync_form(cfg, row):
+    forms = [f[0] for f in FORMS]
+    form = cfg.get("form") or "auto"
+    sel = forms.index(form) if form in forms else 0
+    if row.get_selected() != sel:
+        row.set_selected(sel)
+
+
 class AppearancePage:
     def __init__(self, cfg):
         self.cfg = cfg
         self.widget = page("Darstellung")
+
+        # the way back from the desktop layout on a phone (on the phone: the "Telefon" page)
+        g, self.form = form_group(cfg)
+        g.set_visible(not PHONE)
+        self.widget.add(g)
 
         g = group("Design")
         self.dark_row = Adw.SwitchRow(title="Dunkles Design",
@@ -249,6 +275,7 @@ class AppearancePage:
             self.cfg.set("accent", hx)
 
     def sync(self):
+        sync_form(self.cfg, self.form)
         self.dark_row.set_active(self.cfg.get("theme") != "light")
         scale = self.cfg.get("display.scale") or 1.0
         self.scale_row.set_selected(min(range(len(self._scales)),
@@ -1051,7 +1078,6 @@ class PhonePage:
     TIMEOUTS = [(30, "30 Sekunden"), (60, "1 Minute"), (120, "2 Minuten"), (300, "5 Minuten"),
                 (600, "10 Minuten"), (0, "Nie")]
     SCALES = [1.5, 1.75, 2.0, 2.25, 2.5, 3.0]
-    FORMS = [("auto", "Automatisch"), ("phone", "Telefon"), ("desktop", "Desktop")]
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -1089,13 +1115,7 @@ class PhonePage:
         g.add(self.osk)
         self.widget.add(g)
 
-        g = group("Ansicht", "„Automatisch“ nimmt die Telefon-Ansicht für hochkante Bildschirme. "
-                             "„Desktop“ zeigt Leiste und Dock, etwa mit externem Monitor.")
-        self.form = Adw.ComboRow(title="Oberfläche",
-                                 model=Gtk.StringList.new([f[1] for f in self.FORMS]))
-        self.form.connect("notify::selected",
-                          lambda r, _p: cfg.set("form", self.FORMS[r.get_selected()][0]))
-        g.add(self.form)
+        g, self.form = form_group(cfg)
         self.widget.add(g)
 
         cfg.connect("changed", lambda *_: self.sync())
@@ -1109,9 +1129,7 @@ class PhonePage:
         self.rotate.set_active(bool(self.cfg.get("phone.auto_rotate", True)))
         sc = self.cfg.get("phone.scale") or 2.0
         self.scale.set_selected(min(range(len(self.SCALES)), key=lambda i: abs(self.SCALES[i] - sc)))
-        forms = [f[0] for f in self.FORMS]
-        form = self.cfg.get("form") or "auto"
-        self.form.set_selected(forms.index(form) if form in forms else 0)
+        sync_form(self.cfg, self.form)
 
 
 # ======================================================================
