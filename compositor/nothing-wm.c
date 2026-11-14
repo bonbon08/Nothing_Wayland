@@ -1744,6 +1744,13 @@ static void keyboard_key(struct wl_listener *l, void *data) {
 			power_key(s, ev->state == WL_KEYBOARD_KEY_STATE_PRESSED);
 			return;
 		}
+		/* KEY_WAKEUP, e.g. double tap on the dark touchscreen (phones): screen on */
+		if (syms[i] == XKB_KEY_XF86WakeUp) {
+			if (ev->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+				set_blank(s, false);
+			}
+			return;
+		}
 	}
 	if (ev->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 		for (int i = 0; i < nsyms; i++) {
