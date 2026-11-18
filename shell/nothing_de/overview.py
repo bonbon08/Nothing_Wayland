@@ -53,17 +53,18 @@ class Overview(layer.Overlay):
         super().open_overlay()
 
     def _populate(self):
-        # phone: the panel fills the screen between the bars, one card per row (on a
-        # landscape screen, e.g. the phone layout on a computer: three cards per row)
+        # phone: the panel fills the screen between the bars, one card per row (tablet
+        # upright: two, landscape screens, e.g. the phone layout on a computer: three)
         narrow = bool(self.shell.phone)
         wide = narrow and self.shell.landscape
+        columns = 1 if self.shell.compact else 3 if wide else 2
         self.panel.set_size_request(-1 if narrow else 800, -1 if narrow else 480)
         for side in ("start", "end", "top", "bottom"):
             getattr(self.panel, f"set_margin_{side}")(12 if narrow else 0)
         self.panel.set_halign(Gtk.Align.FILL if narrow else Gtk.Align.CENTER)
         self.panel.set_valign(Gtk.Align.FILL if narrow else Gtk.Align.CENTER)
-        self.flow.set_min_children_per_line(3 if wide else 1 if narrow else 2)
-        self.flow.set_max_children_per_line(3 if wide else 1 if narrow else 4)
+        self.flow.set_min_children_per_line(columns if narrow else 2)
+        self.flow.set_max_children_per_line(columns if narrow else 4)
         self.flow.set_row_spacing(10 if narrow else 16)
         self.empty.set_label("Keine offenen Apps" if narrow else "Keine offenen Fenster")
 

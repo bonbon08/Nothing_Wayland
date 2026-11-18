@@ -30,18 +30,38 @@ from .phone_extras import Osd, PowerMenu, Rotation  # noqa: E402
 
 
 BIG_SCREEN_MM = 330   # diagonal from which a screen is a computer monitor (13"), not a phone
+# outputs that are a window on a computer (the nested test session), never a phone's panel
+NESTED_CONNECTORS = ("WL-", "X11-", "HEADLESS-")
+COMPACT_WIDTH = 600   # logical px: below this the phone layout fills the screen width
+PHONE_DPI = 160       # logical dots per inch on phones and tablets (Android's "dp")
 
 
-def is_big_screen(connector):
-    """The screen at this connector is a computer monitor or laptop panel (by its size in
-    millimetres; screens that report none count as small)."""
+def screen_diagonal_mm(connector):
+    """Diagonal of the screen at this connector in millimetres, 0 if it reports none."""
     monitors = Gdk.Display.get_default().get_monitors()
     for i in range(monitors.get_n_items()):
         mon = monitors.get_item(i)
         if mon.get_connector() == connector:
             w, h = mon.get_width_mm(), mon.get_height_mm()
-            return (w * w + h * h) ** 0.5 >= BIG_SCREEN_MM
-    return False
+            return (w * w + h * h) ** 0.5
+    return 0
+
+
+def is_big_screen(connector):
+    """The screen at this connector is a computer monitor or laptop panel (by its size in
+    millimetres; a nested test window counts as one, other screens without a size as small)."""
+    if connector.startswith(NESTED_CONNECTORS):
+        return True
+    return screen_diagonal_mm(connector) >= BIG_SCREEN_MM
+
+
+def auto_phone_scale(diagonal_mm, width_px, height_px):
+    """Scale for a phone or tablet from its pixel density, so a logical pixel has about the
+    same size on every device (in quarter steps; 2 when the screen reports no size)."""
+    if not diagonal_mm or not width_px or not height_px:
+        return 2.0
+    dpi = (width_px * width_px + height_px * height_px) ** 0.5 / (diagonal_mm / 25.4)
+    return min(3.0, max(1.0, round(dpi / PHONE_DPI * 4) / 4))
 
 
 class Shell:
@@ -141,6 +161,17 @@ class Shell:
         geo = monitors.get_item(0).get_geometry()
         return geo.width > geo.height
 
+    @property
+    def compact(self):
+        """Phone layout on a narrow screen (a phone held upright): panels take the whole
+        width. Tablets and computer screens keep panels of a fixed width."""
+        if not self.phone:
+            return False
+        monitors = Gdk.Display.get_default().get_monitors()
+        if monitors.get_n_items() == 0:
+            return True
+        return monitors.get_item(0).get_geometry().width < COMPACT_WIDTH
+
     def _phone_form(self, monitor):
         """Phone layout for a portrait screen. "form" in the config or NOTHING_FORM overrides."""
         form = os.environ.get("NOTHING_FORM") or self.cfg.get("form") or "auto"
@@ -227,15 +258,18 @@ class Shell:
     def push_outputs(self):
         # display.scale applies to every screen without a value of its own
         desktop_scale = self.cfg.get("display.scale") or 1.0
-        default = desktop_scale
-        if self.phone:
-            default = self.cfg.get("phone.scale") or 2.0
+        phone_scale = self.cfg.get("phone.scale") or 0   # 0: from the pixel density
         saved = self.cfg.get("outputs") or {}
-        for name in {o["name"] for o in self.wm.state.get("outputs", [])} | set(saved):
+        pixels = {o["name"]: (o.get("width", 0), o.get("height", 0))
+                  for o in self.wm.state.get("outputs", [])}
+        for name in set(pixels) | set(saved):
             out = saved.get(name, {})
-            # the phone layout on a computer monitor: the phone's scale (made for a 6" screen)
+            scale = desktop_scale
+            # the phone layout on a computer monitor (or in a test window): the phone's scale
             # would blow everything up, the monitor keeps the desktop's scale
-            scale = desktop_scale if self.phone and is_big_screen(name) else default
+            if self.phone and not is_big_screen(name):
+                scale = phone_scale or auto_phone_scale(screen_diagonal_mm(name),
+                                                        *pixels.get(name, (0, 0)))
             self.wm.send("output", name, "scale", out.get("scale", scale))
             if "enabled" in out:
                 self.wm.send("output", name, "enabled", 1 if out["enabled"] else 0)

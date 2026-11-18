@@ -19,7 +19,7 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 | `keyboard.layout` / `.variant` / `.options` | XKB | `"us"`, `""`, `""` | Tastaturbelegung |
 | `display.scale` | Zahl, 0.5–4 | `1.0` | Skalierung aller Bildschirme ohne eigenen Wert |
 | `form` | `auto`, `phone`, `desktop` | `auto` | Oberfläche: `auto` nimmt die Telefon-Ansicht, wenn der erste Bildschirm hochkant steht. `phone` geht auch am Rechner: Im Querformat stehen Uhr und Suche links neben dem App-Raster, App-Suche und Kontrollzentrum behalten ihre Desktop-Breite, und mit angeschlossener Tastatur gibt es keine Bildschirmtastatur |
-| `phone.scale` | Zahl, 0.5–4 | `2.0` | Skalierung in der Telefon-Ansicht, sofern kein `outputs.<NAME>.scale` gesetzt ist. Bildschirme ab 13" Diagonale (Monitore, Laptops) behalten `display.scale` |
+| `phone.scale` | Zahl, 0.5–4, oder `0` | `0` | Skalierung in der Telefon-Ansicht, sofern kein `outputs.<NAME>.scale` gesetzt ist. `0` rechnet sie aus der Pixeldichte aus (160 dpi je logischem Pixel, ohne Größenangabe `2`), passend für Telefone und Tablets. Bildschirme ab 13" Diagonale (Monitore, Laptops) und das Test-Fenster (`WLR_BACKENDS=wayland`) behalten `display.scale` |
 | `phone.screen_timeout` | Sekunden | `60` | Telefon: so lange ohne Berührung, dann geht der Bildschirm aus und das Telefon sperrt (`0` = nie) |
 | `phone.auto_rotate` | `true` \| `false` | `true` | Telefon: Bildschirm mit dem Lagesensor drehen (gesperrt immer hochkant) |
 | `phone.wallpaper` | Pfad | `""` | Telefon: Hintergrundbild hinter dem App-Raster, leicht abgedunkelt; leer = schwarz |

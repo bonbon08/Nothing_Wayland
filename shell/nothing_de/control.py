@@ -265,9 +265,9 @@ class ControlCenter(layer.Overlay):
 
     def open_overlay(self):
         # phone: pulled down from the status bar over the whole width; swiping up closes it
-        # (on a landscape screen it stays a column on the right, under the status bar)
+        # (on a tablet or computer screen it stays a column on the right, under the status bar)
         phone = bool(self.shell.phone)
-        narrow = phone and not self.shell.landscape
+        narrow = self.shell.compact
         self.panel.set_size_request(-1 if narrow else 360, -1)
         self.panel.set_halign(Gtk.Align.FILL if narrow else Gtk.Align.END)
         self.panel.set_margin_top(8 if phone else 42)

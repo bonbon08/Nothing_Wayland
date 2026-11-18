@@ -1128,7 +1128,7 @@ class PhonePage:
 
     TIMEOUTS = [(30, "30 Sekunden"), (60, "1 Minute"), (120, "2 Minuten"), (300, "5 Minuten"),
                 (600, "10 Minuten"), (0, "Nie")]
-    SCALES = [1.5, 1.75, 2.0, 2.25, 2.5, 3.0]
+    SCALES = [0, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0]   # 0: from the pixel density
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -1147,7 +1147,9 @@ class PhonePage:
                             lambda r, _p: cfg.set("phone.auto_rotate", r.get_active()))
         g.add(self.rotate)
         self.scale = Adw.ComboRow(title="Größe der Anzeige",
-                                  model=Gtk.StringList.new([f"{int(x * 100)} %" for x in self.SCALES]))
+                                  subtitle="Monitore und Laptops behalten ihre eigene Skalierung",
+                                  model=Gtk.StringList.new([f"{int(x * 100)} %" if x else "Automatisch"
+                                                            for x in self.SCALES]))
         self.scale.connect("notify::selected",
                            lambda r, _p: cfg.set("phone.scale", self.SCALES[r.get_selected()]))
         g.add(self.scale)
@@ -1178,7 +1180,7 @@ class PhonePage:
         if t in keys:
             self.timeout.set_selected(keys.index(t))
         self.rotate.set_active(bool(self.cfg.get("phone.auto_rotate", True)))
-        sc = self.cfg.get("phone.scale") or 2.0
+        sc = self.cfg.get("phone.scale") or 0
         self.scale.set_selected(min(range(len(self.SCALES)), key=lambda i: abs(self.SCALES[i] - sc)))
         sync_form(self.cfg, self.form)
 
