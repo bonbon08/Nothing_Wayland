@@ -214,6 +214,18 @@ class AppearancePage:
         none.connect("activated", lambda *_: self.set_wallpaper(""))
         g.add(none)
         self.widget.add(g)
+
+        g = group("Sperrbildschirm")
+        for key, title, sub in (
+                ("lock.wallpaper", "Hintergrundbild zeigen",
+                 "Das Hintergrundbild abgedunkelt hinter Uhr und Passwortfeld"),
+                ("lock.avatar", "Benutzerbild zeigen",
+                 "Bild aus den Benutzer-Einstellungen, sonst der Anfangsbuchstabe")):
+            r = Adw.SwitchRow(title=title, subtitle=sub)
+            r.set_active(bool(cfg.get(key, True)))
+            r.connect("notify::active", lambda r, _p, k=key: cfg.set(k, r.get_active()))
+            g.add(r)
+        self.widget.add(g)
         cfg.connect("changed", lambda *_: self.sync())
         self.sync()
 
@@ -317,6 +329,45 @@ class WidgetsPage:
         add.connect("clicked", lambda *_: self.add(types[self.combo.get_selected()][0]))
         self.combo.add_suffix(add)
         g.add(self.combo)
+        self.widget.add(g)
+
+        g = group("Audio-Visualizer",
+                  "Ein Band über dem Dock, das im Takt der laufenden Musik ausschlägt. "
+                  "Braucht GStreamer (gst-plugins-good) oder cava. Das Widget "
+                  "„Audio-Visualizer“ zeigt dasselbe als Karte.")
+        self._vis_styles = ["off", "wave", "bars", "dots"]
+        style = Adw.ComboRow(title="Band am unteren Rand",
+                             model=Gtk.StringList.new(["Aus", "Welle", "Balken", "Punktmatrix"]))
+        cur = cfg.get("desktop.visualizer") or "off"
+        style.set_selected(self._vis_styles.index(cur) if cur in self._vis_styles else 0)
+        style.connect("notify::selected",
+                      lambda r, _p: cfg.set("desktop.visualizer", self._vis_styles[r.get_selected()]))
+        g.add(style)
+        height = Adw.SpinRow.new_with_range(40, 400, 10)
+        height.set_title("Höhe")
+        height.set_subtitle("Pixel")
+        height.set_value(int(cfg.get("desktop.visualizer_height") or 140))
+        height.connect("notify::value",
+                       lambda r, _p: cfg.set("desktop.visualizer_height", int(r.get_value())))
+        g.add(height)
+        own = Adw.SwitchRow(title="Eigene Farbe", subtitle="Sonst die Kontrastfarbe")
+        own.set_active(bool(cfg.get("desktop.visualizer_color")))
+        color_btn = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False),
+                                          valign=Gtk.Align.CENTER)
+        c = Gdk.RGBA()
+        c.parse(cfg.get("desktop.visualizer_color") or "#FF6A13")
+        color_btn.set_rgba(c)
+        color_btn.set_sensitive(own.get_active())
+
+        def set_own(row, _p):
+            color_btn.set_sensitive(row.get_active())
+            cfg.set("desktop.visualizer_color",
+                    rgba_hex(color_btn.get_rgba()) if row.get_active() else "")
+        own.connect("notify::active", set_own)
+        color_btn.connect("notify::rgba", lambda b, _p: own.get_active() and cfg.set(
+            "desktop.visualizer_color", rgba_hex(b.get_rgba())))
+        own.add_suffix(color_btn)
+        g.add(own)
         self.widget.add(g)
 
         g = group("Wetter", "Daten von open-meteo.com (ohne Konto).")

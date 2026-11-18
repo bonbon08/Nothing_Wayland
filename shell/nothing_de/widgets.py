@@ -10,7 +10,7 @@ import urllib.request
 
 from gi.repository import Gio, GLib, Gtk, Pango
 
-from . import dotmatrix
+from . import audio, dotmatrix
 from .theme import hex_to_rgb
 from .widget_sdk import DesktopWidget, load_user_widgets, register_widget
 
@@ -490,7 +490,8 @@ class MediaWidget(DesktopWidget):
         if self.proxy:
             self.proxy.call(method, None, Gio.DBusCallFlags.NONE, -1, None, None)
 
-    def refresh(self):
+    def _update_player(self):
+        """Find the MPRIS player; returns (metadata, status) or None without a player."""
         bus = Gio.bus_get_sync(Gio.BusType.SESSION)
         try:
             names = bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus",
@@ -502,10 +503,7 @@ class MediaWidget(DesktopWidget):
         if not players:
             self.proxy = None
             self.player_name = None
-            self.title.set_label("Keine Wiedergabe")
-            self.artist.set_label("")
-            self.src.set_label("MEDIEN")
-            return
+            return None
         if self.player_name not in players:
             self.player_name = players[0]
             self.proxy = Gio.DBusProxy.new_sync(
@@ -515,6 +513,16 @@ class MediaWidget(DesktopWidget):
         meta = meta.unpack() if meta else {}
         status = self.proxy.get_cached_property("PlaybackStatus")
         status = status.unpack() if status else ""
+        return meta, status
+
+    def refresh(self):
+        found = self._update_player()
+        if found is None:
+            self.title.set_label("Keine Wiedergabe")
+            self.artist.set_label("")
+            self.src.set_label("MEDIEN")
+            return
+        meta, status = found
         self.title.set_label(meta.get("xesam:title") or "Unbekannt")
         artists = meta.get("xesam:artist") or []
         self.artist.set_label(", ".join(artists) if isinstance(artists, list) else str(artists))
@@ -546,6 +554,237 @@ class PhotoWidget(DesktopWidget):
         self.hint.set_visible(not ok)
         if ok:
             self.pic.set_filename(path)
+
+
+@register_widget
+class StackedClockWidget(DesktopWidget):
+    """Hours above minutes in large dot-matrix digits."""
+    TYPE, NAME, SIZE, REFRESH = "clock-stacked", "Uhr (gestapelt)", "small", 1
+
+    def build(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
+                      halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER, vexpand=True)
+        self.hours = dotmatrix.DotLabel("00", pitch=8, show_dim=True)
+        self.minutes = dotmatrix.DotLabel("00", pitch=8, show_dim=True, accent_last=True)
+        box.append(self.hours)
+        box.append(self.minutes)
+        self.append(box)
+
+    def refresh(self):
+        now = datetime.datetime.now()
+        h24 = self.cfg.get("bar.clock_24h", True)
+        hour = now.hour if h24 else (now.hour % 12 or 12)
+        self.hours.set_text(f"{hour:02d}")
+        self.minutes.set_text(f"{now.minute:02d}")
+        self.minutes.set_accent(accent_rgba(self.cfg))
+
+
+@register_widget
+class RingClockWidget(DesktopWidget):
+    """A round clock: the ring fills up with the seconds, a dot in the accent colour
+    runs ahead; the time sits in the middle."""
+    TYPE, NAME, SIZE, REFRESH = "clock-ring", "Uhr (Ring)", "small", 1
+
+    def build(self):
+        self.add_css_class("n-circle")
+        overlay = Gtk.Overlay(vexpand=True)
+        self.area = Gtk.DrawingArea(vexpand=True, hexpand=True)
+        self.area.set_draw_func(self._draw)
+        overlay.set_child(self.area)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
+                      halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        self.day = caps("")
+        self.day.set_halign(Gtk.Align.CENTER)
+        self.time = dotmatrix.DotLabel("00:00", pitch=4, align=0.5)
+        self.time.set_halign(Gtk.Align.CENTER)
+        self.ampm = caps("")
+        self.ampm.set_halign(Gtk.Align.CENTER)
+        for w in (self.day, self.time, self.ampm):
+            box.append(w)
+        overlay.add_overlay(box)
+        self.append(overlay)
+
+    def refresh(self):
+        now = datetime.datetime.now()
+        h24 = self.cfg.get("bar.clock_24h", True)
+        hour = now.hour if h24 else (now.hour % 12 or 12)
+        self.time.set_text(f"{hour:02d}:{now.minute:02d}")
+        self.day.set_label(f"{WEEKDAYS[now.weekday()][:2]} {now.day:02d}")
+        self.ampm.set_label("" if h24 else ("AM" if now.hour < 12 else "PM"))
+        self.area.queue_draw()
+
+    def _draw(self, area, cr, w, h):
+        fg = dotmatrix.rgba_tuple(area.get_color())
+        acc = accent_rgba(self.cfg)
+        now = datetime.datetime.now()
+        cx, cy = w / 2, h / 2
+        r = min(w, h) / 2 - 14
+        start = -math.pi / 2
+        frac = (now.second + now.microsecond / 1e6) / 60
+        cr.set_line_width(1.5)
+        cr.set_source_rgba(fg[0], fg[1], fg[2], 0.18)
+        cr.arc(cx, cy, r, 0, 2 * math.pi)
+        cr.stroke()
+        # minute ticks on an inner ring
+        for i in range(12):
+            a = i / 12 * 2 * math.pi
+            cr.set_source_rgba(fg[0], fg[1], fg[2], 0.35)
+            cr.arc(cx + math.sin(a) * (r - 9), cy - math.cos(a) * (r - 9), 1.2, 0, 2 * math.pi)
+            cr.fill()
+        cr.set_line_width(2.5)
+        cr.set_line_cap(1)
+        cr.set_source_rgba(*fg)
+        cr.arc(cx, cy, r, start, start + frac * 2 * math.pi + 1e-3)
+        cr.stroke()
+        a = start + frac * 2 * math.pi
+        cr.set_source_rgba(*acc)
+        cr.arc(cx + math.cos(a) * r, cy + math.sin(a) * r, 4.5, 0, 2 * math.pi)
+        cr.fill()
+
+
+@register_widget
+class RoundMediaWidget(MediaWidget):
+    """The media player as a round button: a dot-matrix play/pause symbol in the middle,
+    the ring shows how far the track is. Click = play/pause, scroll = next/previous."""
+    TYPE, NAME, SIZE, REFRESH = "media-round", "Medien (rund)", "small", 2
+
+    def build(self):
+        self.proxy = None
+        self.player_name = None
+        self.progress = 0.0
+        self.playing = False
+        self.add_css_class("n-circle")
+        overlay = Gtk.Overlay(vexpand=True)
+        self.area = Gtk.DrawingArea(vexpand=True, hexpand=True)
+        self.area.set_draw_func(self._draw)
+        overlay.set_child(self.area)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
+                      halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        self.glyph = dotmatrix.DotLabel("▶", pitch=6, align=0.5)
+        self.glyph.set_halign(Gtk.Align.CENTER)
+        self.src = caps("MEDIEN")
+        self.src.set_halign(Gtk.Align.CENTER)
+        self.src.set_size_request(112, -1)
+        self.src.set_xalign(0.5)
+        self.src.set_ellipsize(Pango.EllipsizeMode.END)
+        box.append(self.glyph)
+        box.append(self.src)
+        overlay.add_overlay(box)
+        self.append(overlay)
+        click = Gtk.GestureClick()
+        click.connect("released", lambda *_: self._call("PlayPause"))
+        self.add_controller(click)
+        scroll = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
+        scroll.connect("scroll", self._on_scroll)
+        self.add_controller(scroll)
+        self.set_tooltip_text("Klick: Wiedergabe/Pause · Scrollen: Titel wechseln")
+
+    def _on_scroll(self, _c, _dx, dy):
+        self._call("Next" if dy > 0 else "Previous")
+        return True
+
+    def refresh(self):
+        found = self._update_player()
+        if found is None:
+            self.playing = False
+            self.progress = 0.0
+            self.glyph.set_text("▶")
+            self.src.set_label("MEDIEN")
+            self.set_tooltip_text("Keine Wiedergabe")
+            self.area.queue_draw()
+            return
+        meta, status = found
+        self.playing = status == "Playing"
+        self.glyph.set_text("⏸" if self.playing else "▶")
+        title = meta.get("xesam:title") or ""
+        self.src.set_label((title or self.player_name.split(".")[3]).upper())
+        self.set_tooltip_text(title or None)
+        length = meta.get("mpris:length") or 0
+        if length and self.proxy is not None:
+            self.proxy.call("org.freedesktop.DBus.Properties.Get",
+                            GLib.Variant("(ss)", ("org.mpris.MediaPlayer2.Player", "Position")),
+                            Gio.DBusCallFlags.NONE, 500, None, self._on_position, length)
+        else:
+            self.progress = 0.0
+            self.area.queue_draw()
+
+    def _on_position(self, proxy, res, length):
+        try:
+            pos = proxy.call_finish(res).unpack()[0]
+            self.progress = max(0.0, min(1.0, pos / length))
+        except (GLib.Error, TypeError, ZeroDivisionError):
+            self.progress = 0.0
+        self.area.queue_draw()
+
+    def _draw(self, area, cr, w, h):
+        fg = dotmatrix.rgba_tuple(area.get_color())
+        acc = accent_rgba(self.cfg)
+        cx, cy = w / 2, h / 2
+        r = min(w, h) / 2 - 14
+        # a ring of dots, the played part lit
+        n = 48
+        lit = int(round(self.progress * n))
+        for i in range(n):
+            a = i / n * 2 * math.pi
+            on = i < lit
+            cr.set_source_rgba(fg[0], fg[1], fg[2], 0.9 if on else 0.16)
+            cr.arc(cx + math.sin(a) * r, cy - math.cos(a) * r, 1.8 if on else 1.4, 0, 2 * math.pi)
+            cr.fill()
+        if self.playing:
+            a = self.progress * 2 * math.pi
+            cr.set_source_rgba(*acc)
+            cr.arc(cx + math.sin(a) * r, cy - math.cos(a) * r, 4, 0, 2 * math.pi)
+            cr.fill()
+
+
+@register_widget
+class VisualizerWidget(DesktopWidget):
+    """What is playing, as a dot-matrix spectrum (needs GStreamer's pulsesrc/spectrum or
+    cava, see audio.py)."""
+    TYPE, NAME, SIZE, REFRESH = "visualizer", "Audio-Visualizer", "wide", 3
+
+    def build(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True)
+        for m in ("start", "end", "top", "bottom"):
+            getattr(box, f"set_margin_{m}")(18)
+        head = Gtk.Box()
+        title = caps("AUDIO")
+        title.set_hexpand(True)
+        self.state = caps("")
+        head.append(title)
+        head.append(self.state)
+        self.area = Gtk.DrawingArea(vexpand=True, hexpand=True)
+        self.area.set_draw_func(self._draw)
+        box.append(head)
+        box.append(self.area)
+        self.append(box)
+        self.levels = []
+        self.spectrum = audio.get_spectrum()
+        self._sub = self.spectrum.subscribe(self._on_levels)
+
+    def _on_levels(self, levels):
+        self.levels = levels
+        self.area.queue_draw()
+
+    def refresh(self):
+        if self.spectrum.backend is None:
+            self.state.set_label("KEIN AUDIO-ABGRIFF" if not self.spectrum.available else "")
+            self.set_tooltip_text("Für den Visualizer gst-plugins-good oder cava installieren"
+                                  if not self.spectrum.available else None)
+        else:
+            self.state.set_label(self.spectrum.backend.upper())
+
+    def _draw(self, area, cr, w, h):
+        fg = dotmatrix.rgba_tuple(area.get_color())
+        acc = accent_rgba(self.cfg)
+        audio.draw_levels(cr, self.levels, 0, 0, w, h, "dots", acc,
+                          dim=(fg[0], fg[1], fg[2], 0.85), pitch=9)
+
+    def teardown(self):
+        if self._sub:
+            self.spectrum.unsubscribe(self._sub)
+            self._sub = None
+        super().teardown()
 
 
 # Alle Widget-Typen registrieren sich automatisch über @register_widget in

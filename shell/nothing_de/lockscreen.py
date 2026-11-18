@@ -81,6 +81,37 @@ def _on_screen_keyboard(entry):
     return board
 
 
+def avatar_path(user):
+    """The user's picture: AccountsService's icon or ~/.face, like GDM shows it."""
+    for path in (os.path.join("/var/lib/AccountsService/icons", user),
+                 os.path.expanduser("~/.face"), os.path.expanduser("~/.face.icon")):
+        try:
+            if os.path.isfile(path) and os.access(path, os.R_OK) and os.path.getsize(path) > 0:
+                return path
+        except OSError:
+            continue
+    return None
+
+
+def user_avatar(user, size=84):
+    """A round picture of the user; without one, the initial on the accent colour."""
+    frame = Gtk.Box(halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+    frame.add_css_class("n-avatar")
+    frame.set_size_request(size, size)
+    frame.set_overflow(Gtk.Overflow.HIDDEN)
+    path = avatar_path(user)
+    if path:
+        pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True,
+                          hexpand=True, vexpand=True)
+        pic.set_filename(path)
+        frame.append(pic)
+    else:
+        frame.add_css_class("n-avatar-initial")
+        label = Gtk.Label(label=(user[:1] or "?").upper(), hexpand=True)
+        frame.append(label)
+    return frame
+
+
 class Logind:
     """The login session in logind: LockedHint follows our lock screen (the fingerprint
     service of the phone port only scans while it is set), and logind's Unlock (e.g.
@@ -184,6 +215,24 @@ class LockScreen:
         self.instance = None
         self.logind.set_locked_hint(False)
 
+    def _background(self):
+        """The wallpaper behind the lock screen, dimmed so the clock stays readable;
+        plain background colour if switched off or there is no picture."""
+        cfg = self.shell.cfg
+        key = "phone.wallpaper" if self.shell.phone else "wallpaper"
+        path = cfg.get(key) or "" if cfg.get("lock.wallpaper", True) else ""
+        if not path or not os.path.exists(path):
+            return Gtk.Box(hexpand=True, vexpand=True)
+        stack = Gtk.Overlay()
+        pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True,
+                          hexpand=True, vexpand=True)
+        pic.set_filename(path)
+        stack.set_child(pic)
+        scrim = Gtk.Box(hexpand=True, vexpand=True)
+        scrim.add_css_class("n-lock-scrim")
+        stack.add_overlay(scrim)
+        return stack
+
     def _window_for(self, monitor):
         win = Gtk.Window(application=self.shell.app)
         win.add_css_class("n-root")
@@ -198,6 +247,11 @@ class LockScreen:
         user = Gtk.Label(label=self.user.upper())
         user.add_css_class("n-caps")
         user.set_margin_top(40)
+        avatar = None
+        if self.shell.cfg.get("lock.avatar", True):
+            avatar = user_avatar(self.user)
+            avatar.set_margin_top(40)
+            user.set_margin_top(0)
         entry = Gtk.PasswordEntry(show_peek_icon=True, placeholder_text="Passwort")
         entry.set_halign(Gtk.Align.CENTER)
         # GTK's simple input method instead of the compositor's (text-input): the lock
@@ -206,8 +260,9 @@ class LockScreen:
         entry.get_delegate().set_property("im-module", "gtk-im-context-simple")
         status = Gtk.Label()
         status.add_css_class("n-accent-text")
-        for w in (day, clock, user, entry, status):
-            box.append(w)
+        for w in (day, clock, avatar, user, entry, status):
+            if w is not None:
+                box.append(w)
         if self.shell.phone:
             # no hardware keyboard on the phone: type the password on screen
             box.set_halign(Gtk.Align.FILL)
@@ -215,7 +270,8 @@ class LockScreen:
             box.set_margin_bottom(28)
             entry.set_size_request(300, -1)
             box.append(_on_screen_keyboard(entry))
-        overlay = Gtk.Overlay(child=box)
+        overlay = Gtk.Overlay(child=self._background())
+        overlay.add_overlay(box)
         win.n_overlay = overlay
         win.n_power = None
         win.set_child(overlay)

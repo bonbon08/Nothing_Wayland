@@ -15,6 +15,10 @@ unten ein Dock und dazwischen ein Schreibtisch mit Widgets. X11-Programme laufen
 | **Einstellungen** | **Online-Konten** (Google, Microsoft, Nextcloud …) |
 | ![Einstellungen](docs/screenshots/settings-appearance.png) | ![Online-Konten](docs/screenshots/settings-accounts.png) |
 
+| **Audio-Visualizer, runde Widgets, Wellen-Hintergrund** | **Sperrbildschirm mit Hintergrund und Benutzerbild** |
+|---|---|
+| ![Visualizer](docs/screenshots/visualizer.png) | ![Sperrbildschirm](docs/screenshots/lock-wallpaper.png) |
+
 Weitere Bilder: [Sperrbildschirm](docs/screenshots/lock.png) · [Rechtsklick-Menü](docs/screenshots/menu.png) ·
 [Rechner in der Suche](docs/screenshots/calc.png) · [Widgets](docs/screenshots/settings-widgets.png) ·
 [Dock & Leiste](docs/screenshots/settings-dock.png) · [Standard-Apps](docs/screenshots/settings-apps.png) ·
@@ -29,9 +33,16 @@ Weitere Bilder: [Sperrbildschirm](docs/screenshots/lock.png) · [Rechtsklick-Men
   runde Karten, Beschriftungen in Monospace-Großbuchstaben. Helles und dunkles Design.
 - **Wählbare Kontrastfarbe:** neun Vorgaben oder eine eigene Farbe. Sie gilt für Shell, X11-Titelleisten und
   libadwaita-Apps.
-- **Hintergrundbild:** mitgelieferte Nothing-Motive, Systemhintergründe oder ein eigenes Bild.
-- **Widgets:** Uhr (Punktmatrix), Analoguhr, Wetter (open-meteo, ohne Konto), Akku, System (CPU/RAM),
-  Kalender, Notizen, Medien (MPRIS) und Foto. Sie lassen sich frei verschieben.
+- **Hintergrundbild:** mitgelieferte Nothing-Motive (darunter sanfte Wellen), Systemhintergründe oder ein eigenes Bild.
+- **Widgets:** Uhr (Punktmatrix), gestapelte Uhr (Stunden über Minuten), Ring-Uhr (rund, der Ring füllt sich
+  mit den Sekunden), Analoguhr, Wetter (open-meteo, ohne Konto), Akku, System (CPU/RAM), Kalender, Notizen,
+  Medien (MPRIS), runde Medien-Taste (Punktmatrix-Symbol, Ring zeigt den Fortschritt, Scrollen wechselt
+  den Titel), Audio-Visualizer und Foto. Sie lassen sich frei verschieben.
+- **Audio-Visualizer:** Auf Wunsch schlägt am unteren Bildschirmrand, hinter dem Dock, ein Band im Takt der
+  laufenden Musik aus: als Welle, Balken oder Punktmatrix, in der Kontrastfarbe oder einer eigenen Farbe
+  (Einstellungen → Widgets). Abgegriffen wird der Ton aller Apps über GStreamer oder `cava`.
+- **Sperrbildschirm:** große Punktmatrix-Uhr vor dem abgedunkelten Hintergrundbild, darunter das Benutzerbild
+  (aus AccountsService oder `~/.face`, sonst der Anfangsbuchstabe auf der Kontrastfarbe).
 - **Leiste:** Systemmenü, Name der aktiven App mit Fenstermenü, Punkte für die Arbeitsflächen, Netzwerk,
   Lautstärke, Akku, Uhr mit Kalender.
 - **App-Symbole im Nothing-Stil:** Jede App bekommt automatisch ein einfarbiges Symbol auf einem runden,

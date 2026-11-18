@@ -110,6 +110,7 @@ springt der Cursor an den vom Spiel gewünschten Punkt), Tablet-v2.
 | `dock.py` | Dock: Gruppierung, Ziehen zum Umsortieren und Anheften, automatische Symbolgröße. Das Ausblenden übernimmt `nothing-wm`, der das Dock am Namespace `nothing-dock` erkennt; es reserviert deshalb keinen Platz. Fenster von Einträgen mit `NoDisplay` oder `Hidden` bekommen kein Symbol |
 | `desktop.py` | Hintergrund und Widget-Fläche (Verschieben, Rechtsklick-Menü) |
 | `widgets.py` | Die Widgets |
+| `audio.py` | Tonabgriff (GStreamer oder cava) und Zeichnen des Audio-Visualizers |
 | `dotmatrix.py` | Punktmatrix-Schrift (5×7) mit cairo |
 | `launcher.py` | App-Suche mit Rechner; Kacheln lassen sich ins Dock ziehen oder per Rechtsklick anheften. Das Overlay lässt den Bereich des Docks frei |
 | `control.py` | Kontrollzentrum |

@@ -12,6 +12,8 @@ optdepends=('networkmanager: network status and Wi-Fi toggle'
             'bluez-utils: Bluetooth toggle'
             'grim: screenshots' 'slurp: area screenshots' 'wl-clipboard: copy screenshots'
             'brightnessctl: brightness keys' 'playerctl: media keys'
+            'gst-plugins-good: audio visualizer (pulsesrc + spectrum)'
+            'cava: audio visualizer, alternative to GStreamer'
             'gnome-control-center: adding online accounts (Google, Microsoft, …)'
             'gnome-keyring: storing online account secrets')
 makedepends=(meson ninja wayland-protocols)

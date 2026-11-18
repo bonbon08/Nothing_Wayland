@@ -146,6 +146,7 @@ window.n-layer > .n-dock {{
   border: 1px solid alpha(@n_border, 0.6);
 }}
 .n-card.editing {{ border: 1px dashed @n_accent; }}
+.n-card.n-circle {{ border-radius: 9999px; }}
 .n-widget-title {{ font-family: "Space Mono", "Adwaita Mono", monospace; font-size: 10.5px;
   letter-spacing: 1.6px; color: @n_muted; }}
 .n-big {{ font-size: 30px; font-weight: 300; }}
@@ -210,6 +211,9 @@ scale.n-slider slider {{ min-width: 0; min-height: 0; background: transparent; b
   padding: 0 18px; border: 1px solid @n_border; color: @n_fg; }}
 .n-lock entry:focus-within {{ border-color: alpha(@n_fg, 0.35); outline: none; box-shadow: none; }}
 .n-lock entry.error {{ border-color: @n_accent; }}
+.n-lock-scrim {{ background: alpha(@n_bg, 0.45); }}
+.n-avatar {{ border-radius: 9999px; background: @n_card; }}
+.n-avatar-initial {{ background: @n_accent; color: @n_on_accent; font-size: 34px; font-weight: 600; }}
 
 popover.n-menu > contents {{ background: @n_surface; color: @n_fg; border-radius: 18px;
   border: 1px solid @n_border; padding: 6px; }}

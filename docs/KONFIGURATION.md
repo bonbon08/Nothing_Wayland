@@ -39,6 +39,12 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 | `notes` | Text | `""` | Inhalt des Notizen-Widgets |
 | `photo` | Pfad | `""` | Bild für das Foto-Widget |
 | `dnd` | bool | `false` | *Nicht stören*: blendet normale Benachrichtigungen aus |
+| `desktop.visualizer` | `off`, `wave`, `bars`, `dots` | `off` | Audio-Visualizer am unteren Bildschirmrand (Welle, Balken, Punktmatrix) |
+| `desktop.visualizer_height` | px, 40–600 | `140` | Höhe des Visualizer-Bands |
+| `desktop.visualizer_color` | `"#RRGGBB"` | `""` | Farbe des Bands; leer = Kontrastfarbe |
+| `desktop.visualizer_opacity` | 0–1 | `0.9` | Deckkraft des Bands |
+| `lock.wallpaper` | bool | `true` | Sperrbildschirm zeigt das Hintergrundbild (abgedunkelt) |
+| `lock.avatar` | bool | `true` | Sperrbildschirm zeigt das Benutzerbild bzw. den Anfangsbuchstaben |
 
 ### Widgets
 
@@ -55,6 +61,8 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 | Typ | Größe | Widget |
 |---|---|---|
 | `clock` | breit | Punktmatrix-Uhr mit Datum |
+| `clock-stacked` | klein | Punktmatrix-Uhr, Stunden über Minuten |
+| `clock-ring` | klein | Runde Uhr, der Ring füllt sich mit den Sekunden |
 | `analog` | klein | Analoguhr |
 | `weather` | klein | Wetter (open-meteo.com) |
 | `battery` | klein | Akkustand bzw. „AC“ |
@@ -62,6 +70,8 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 | `calendar` | breit | Monatskalender |
 | `notes` | groß | Notizen (Text wird gespeichert) |
 | `media` | breit | Steuerung des laufenden Players (MPRIS) |
+| `media-round` | klein | Runde Medien-Taste: Klick = Wiedergabe/Pause, Scrollen = Titel wechseln, Ring = Fortschritt |
+| `visualizer` | breit | Audio-Visualizer als Punktmatrix (braucht GStreamer oder `cava`) |
 | `photo` | groß | Ein Foto (`photo`) |
 
 Klein = 172×172, breit = 360×172, groß = 360×360 Pixel.
@@ -77,6 +87,7 @@ Klein = 172×172, breit = 360×172, groß = 360×360 Pixel.
 | `NOTHING_DE_DATA` | Anderes Datenverzeichnis (Hintergründe) |
 | `NOTHING_NO_GSETTINGS=1` | Shell schreibt nicht in GNOMEs `color-scheme`/`accent-color` |
 | `NOTHING_NO_AUTOSTART=1` | XDG-Autostart-Einträge nicht starten |
+| `NOTHING_NO_AUDIO=1` | Audio-Visualizer greift keinen Ton ab (bleibt flach) |
 | `NOTHING_LAYER_SHELL_LIB` | Pfad zu `libgtk4-layer-shell.so`, falls nicht unter `/usr/lib` |
 
 ## Installierte Dateien

@@ -85,7 +85,12 @@ DEFAULTS = {
     "notes": "",
     "photo": "",
     "dnd": False,
-    "desktop": {"icons": False},
+    # visualizer: off | wave | bars | dots, a band of the playing audio above the dock;
+    # visualizer_color: "" = accent colour
+    "desktop": {"icons": False, "visualizer": "off", "visualizer_height": 140,
+                "visualizer_color": "", "visualizer_opacity": 0.9},
+    # lock screen: wallpaper behind the clock (dimmed) and the user's picture
+    "lock": {"wallpaper": True, "avatar": True},
     "ontop_apps": [],                # desktop ids whose windows stay above other windows
 }
 
