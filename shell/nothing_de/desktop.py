@@ -6,9 +6,10 @@ import traceback
 
 from gi.repository import Gdk, Gio, GLib, Gtk
 
-from . import layer
+from . import audio, layer
 from .apps import spawn
 from .desktop_icons import DesktopIcons
+from .theme import hex_to_rgb
 from .widget_sdk import SIZES, WIDGET_TYPES
 
 GRID = 8
@@ -39,6 +40,14 @@ class DesktopWindow(Gtk.ApplicationWindow):
         self.picture = Gtk.Picture(hexpand=True, vexpand=True, can_shrink=True)
         self.bg.append(self.picture)
         overlay = Gtk.Overlay(child=self.bg)
+        # audio visualizer band along the bottom edge, behind the widgets (desktop.visualizer)
+        self.visualizer = Gtk.DrawingArea(can_target=False, hexpand=True,
+                                          valign=Gtk.Align.END, visible=False)
+        self.visualizer.set_draw_func(self._draw_visualizer)
+        self._vis_sub = None
+        self._vis_levels = []
+        overlay.add_overlay(self.visualizer)
+        self.connect("destroy", lambda *_: self._stop_visualizer())
         self.fixed = Gtk.Fixed()
         overlay.add_overlay(self.fixed)
 
@@ -135,6 +144,39 @@ class DesktopWindow(Gtk.ApplicationWindow):
         else:
             self.picture.set_paintable(None)
 
+    # --------------------------------------------------------- visualizer
+    def _apply_visualizer(self):
+        style = self.cfg.get("desktop.visualizer") or "off"
+        on = style in ("wave", "bars", "dots")
+        height = int(self.cfg.get("desktop.visualizer_height") or 140)
+        self.visualizer.set_content_height(max(40, min(height, 600)))
+        self.visualizer.set_visible(on)
+        spectrum = audio.get_spectrum()
+        if on and self._vis_sub is None:
+            self._vis_sub = spectrum.subscribe(self._on_levels)
+        elif not on:
+            self._stop_visualizer()
+        self.visualizer.queue_draw()
+
+    def _stop_visualizer(self):
+        if self._vis_sub is not None:
+            audio.get_spectrum().unsubscribe(self._vis_sub)
+            self._vis_sub = None
+        self._vis_levels = []
+
+    def _on_levels(self, levels):
+        self._vis_levels = levels
+        self.visualizer.queue_draw()
+
+    def _draw_visualizer(self, _area, cr, w, h):
+        style = self.cfg.get("desktop.visualizer") or "off"
+        r, g, b = hex_to_rgb(self.cfg.get("desktop.visualizer_color") or self.cfg.get("accent"))
+        alpha = float(self.cfg.get("desktop.visualizer_opacity", 0.9))
+        color = (r, g, b, alpha)
+        dim = (1, 1, 1, alpha * 0.55) if self.cfg.get("theme") != "light" else (0, 0, 0, alpha * 0.55)
+        audio.draw_levels(cr, self._vis_levels, 0, 0, w, h, style, color, dim=dim,
+                          pitch=14 if style == "dots" else 12, off_dots=False)
+
     # ------------------------------------------------------------ widgets
     def set_primary(self, primary):
         """The widgets live on the first screen; that can change with the screens."""
@@ -154,6 +196,7 @@ class DesktopWindow(Gtk.ApplicationWindow):
 
     def reload(self):
         self._apply_wallpaper()
+        self._apply_visualizer()
         if not self.primary:
             return
         specs = self.cfg.get("widgets") or []

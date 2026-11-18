@@ -16,6 +16,7 @@ from .icons import icon_widget
 from .widgets import read_battery
 
 COLUMNS = 4
+MAX_COLUMNS = 10      # landscape: at most this many apps per row
 
 
 def _window_for(shell, app):
@@ -38,19 +39,26 @@ class PhoneHome(Gtk.ApplicationWindow):
             self.set_default_size(400, 800)
         self.add_css_class("n-root")
         self.add_css_class("n-phone-home")
+        self.monitor = monitor
 
+        # portrait: date, clock, search and the app grid below each other; landscape (the
+        # phone layout on a computer screen, a phone on its side): the head on the left,
+        # the grid fills the rest, with as many columns as fit
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        root.set_margin_top(84)            # unter der Statusleiste
         root.set_margin_bottom(44)         # über der Home-Leiste
         root.set_margin_start(20)
         root.set_margin_end(20)
+        self.root = root
+        head = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        self.head = head
+        root.append(head)
 
         self.date = Gtk.Label(xalign=0)
         self.date.add_css_class("n-caps")
-        root.append(self.date)
+        head.append(self.date)
         self.clock = Gtk.Label(xalign=0)
         self.clock.add_css_class("n-phone-clock")
-        root.append(self.clock)
+        head.append(self.clock)
 
         # search: opens the launcher (apps, calculator), the on-screen keyboard comes with it
         search = Gtk.Button()
@@ -60,7 +68,7 @@ class PhoneHome(Gtk.ApplicationWindow):
         row.append(Gtk.Label(label="Apps suchen", xalign=0))
         search.set_child(row)
         search.connect("clicked", lambda *_: shell.run_action("launcher"))
-        root.append(search)
+        head.append(search)
 
         self.flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,
                                 max_children_per_line=COLUMNS, min_children_per_line=COLUMNS,
@@ -68,7 +76,7 @@ class PhoneHome(Gtk.ApplicationWindow):
                                 activate_on_single_click=True, valign=Gtk.Align.START)
         self.flow.connect("child-activated", self._activated)
         scroll = Gtk.ScrolledWindow(child=self.flow, hscrollbar_policy=Gtk.PolicyType.NEVER,
-                                    vexpand=True)
+                                    vexpand=True, hexpand=True)
         root.append(scroll)
         # wallpaper (phone.wallpaper, its own key: the desktop's is made for landscape), darkened
         # a little so the app names stay readable
@@ -87,7 +95,33 @@ class PhoneHome(Gtk.ApplicationWindow):
         shell.apps.listeners.append(self.populate)
         GLib.timeout_add_seconds(1, self._tick)
         self._tick()
+        self._landscape = None
+        self._columns = COLUMNS
+        if monitor is not None:
+            monitor.connect("notify::geometry", lambda *_: self._relayout())
+        self._relayout()
         GLib.idle_add(lambda: (self.populate(), False)[1])
+
+    def _relayout(self):
+        geo = self.monitor.get_geometry() if self.monitor is not None else None
+        landscape = bool(geo and geo.width > geo.height)
+        columns = COLUMNS
+        if landscape:
+            # about 112 px per app next to a 300 px head
+            columns = max(COLUMNS, min(MAX_COLUMNS, (geo.width - 300 - 80) // 112))
+        if (landscape, columns) == (self._landscape, self._columns):
+            return
+        self._landscape, self._columns = landscape, columns
+        self.root.set_orientation(Gtk.Orientation.HORIZONTAL if landscape
+                                  else Gtk.Orientation.VERTICAL)
+        self.root.set_spacing(32 if landscape else 18)
+        # under the status bar; next to the grid the head needs less room above it
+        self.root.set_margin_top(48 if landscape else 84)
+        self.head.set_size_request(280 if landscape else -1, -1)
+        self.head.set_hexpand(False)
+        self.head.set_valign(Gtk.Align.START)
+        self.flow.set_min_children_per_line(columns)
+        self.flow.set_max_children_per_line(columns)
 
     def _apply_wallpaper(self):
         path = self.shell.cfg.get("phone.wallpaper") or ""

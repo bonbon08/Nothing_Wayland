@@ -80,12 +80,14 @@ class Launcher(layer.Overlay):
 
     def open_overlay(self):
         self.entry.set_text("")
-        # phone: the panel takes the screen width, four apps per row
-        narrow = bool(self.shell.phone)
+        # phone: the panel takes the screen width, four apps per row; the phone layout on a
+        # landscape screen (a computer) keeps the desktop's panel, just near the status bar
+        phone = bool(self.shell.phone)
+        narrow = phone and not self.shell.landscape
         self.panel.set_size_request(-1 if narrow else 720, -1)
         self.panel.set_margin_start(12 if narrow else 0)
         self.panel.set_margin_end(12 if narrow else 0)
-        self.panel.set_margin_top(12 if narrow else 120)
+        self.panel.set_margin_top(12 if phone else 120)
         self.panel.set_halign(Gtk.Align.FILL if narrow else Gtk.Align.CENTER)
         self.flow.set_min_children_per_line(4 if narrow else 6)
         self.flow.set_max_children_per_line(4 if narrow else 6)
