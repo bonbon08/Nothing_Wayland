@@ -53,9 +53,9 @@ DEFAULTS = {
     "workspaces": 4,
     "form": "auto",                  # auto (portrait screen = phone) | phone | desktop
     "display": {"scale": 1.0},
-    # phone layout (see phone.py): own screen scale; seconds without a touch until the
-    # screen goes off and the phone locks (0 = never)
-    "phone": {"scale": 2.0, "screen_timeout": 60, "auto_rotate": True, "wallpaper": ""},
+    # phone layout (see phone.py): own screen scale (0 = from the pixel density); seconds
+    # without a touch until the screen goes off and the phone locks (0 = never)
+    "phone": {"scale": 0, "screen_timeout": 60, "auto_rotate": True, "wallpaper": ""},
     "terminal": "",
     "files": "",
     "keyboard": {"layout": "us", "variant": "", "options": ""},

@@ -16,7 +16,7 @@ from .icons import icon_widget
 from .widgets import read_battery
 
 COLUMNS = 4
-MAX_COLUMNS = 10      # landscape: at most this many apps per row
+MAX_COLUMNS = 10      # tablets and landscape: at most this many apps per row
 
 
 def _window_for(shell, app):
@@ -106,9 +106,11 @@ class PhoneHome(Gtk.ApplicationWindow):
         geo = self.monitor.get_geometry() if self.monitor is not None else None
         landscape = bool(geo and geo.width > geo.height)
         columns = COLUMNS
-        if landscape:
-            # about 112 px per app next to a 300 px head
-            columns = max(COLUMNS, min(MAX_COLUMNS, (geo.width - 300 - 80) // 112))
+        if geo:
+            # about 112 px per app (landscape: next to a 300 px head); a phone upright keeps
+            # four columns, a tablet gets as many as fit
+            free = geo.width - (300 + 80 if landscape else 40)
+            columns = max(COLUMNS, min(MAX_COLUMNS, free // 112))
         if (landscape, columns) == (self._landscape, self._columns):
             return
         self._landscape, self._columns = landscape, columns
