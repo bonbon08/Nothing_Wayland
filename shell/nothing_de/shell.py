@@ -29,6 +29,21 @@ from .phone import PhoneHome, PhoneNav, PhoneStatus  # noqa: E402
 from .phone_extras import Osd, PowerMenu, Rotation  # noqa: E402
 
 
+BIG_SCREEN_MM = 330   # diagonal from which a screen is a computer monitor (13"), not a phone
+
+
+def is_big_screen(connector):
+    """The screen at this connector is a computer monitor or laptop panel (by its size in
+    millimetres; screens that report none count as small)."""
+    monitors = Gdk.Display.get_default().get_monitors()
+    for i in range(monitors.get_n_items()):
+        mon = monitors.get_item(i)
+        if mon.get_connector() == connector:
+            w, h = mon.get_width_mm(), mon.get_height_mm()
+            return (w * w + h * h) ** 0.5 >= BIG_SCREEN_MM
+    return False
+
+
 class Shell:
     def __init__(self, app):
         self.app = app
@@ -89,7 +104,9 @@ class Shell:
             GLib.timeout_add_seconds(2, lambda: (self.lockscreen.lock(), False)[1])
         else:
             self._relock_pending = True
-        self.start_osk(restart=first)
+        # the phone layout on a computer: no on-screen keyboard popping up over a real one
+        if system.has_touchscreen() or not system.has_hardware_keyboard():
+            self.start_osk(restart=first)
         self.rotation = Rotation(self)
         self.cfg.connect("changed", lambda *_: self.rotation.apply())
 
@@ -114,6 +131,16 @@ class Shell:
             overlay.close_overlay()
 
     # ---------------------------------------------------------- monitors
+    @property
+    def landscape(self):
+        """The first screen is wider than high: the phone layout on a computer screen, or a
+        phone turned on its side. Panels then keep a sensible width instead of filling it."""
+        monitors = Gdk.Display.get_default().get_monitors()
+        if monitors.get_n_items() == 0:
+            return False
+        geo = monitors.get_item(0).get_geometry()
+        return geo.width > geo.height
+
     def _phone_form(self, monitor):
         """Phone layout for a portrait screen. "form" in the config or NOTHING_FORM overrides."""
         form = os.environ.get("NOTHING_FORM") or self.cfg.get("form") or "auto"
@@ -199,13 +226,17 @@ class Shell:
 
     def push_outputs(self):
         # display.scale applies to every screen without a value of its own
-        default = self.cfg.get("display.scale") or 1.0
+        desktop_scale = self.cfg.get("display.scale") or 1.0
+        default = desktop_scale
         if self.phone:
             default = self.cfg.get("phone.scale") or 2.0
         saved = self.cfg.get("outputs") or {}
         for name in {o["name"] for o in self.wm.state.get("outputs", [])} | set(saved):
             out = saved.get(name, {})
-            self.wm.send("output", name, "scale", out.get("scale", default))
+            # the phone layout on a computer monitor: the phone's scale (made for a 6" screen)
+            # would blow everything up, the monitor keeps the desktop's scale
+            scale = desktop_scale if self.phone and is_big_screen(name) else default
+            self.wm.send("output", name, "scale", out.get("scale", scale))
             if "enabled" in out:
                 self.wm.send("output", name, "enabled", 1 if out["enabled"] else 0)
             pos = out.get("position")

@@ -68,6 +68,7 @@ window.n-phone-home.has-wallpaper label {{ text-shadow: 0 1px 3px rgba(0,0,0,0.6
 .n-key {{ min-width: 0; min-height: 50px; padding: 0; margin: 0; border-radius: 12px;
   background: @n_card; color: @n_fg; border: none; box-shadow: none; font-size: 16px; }}
 .n-key:active {{ background: @n_card_hi; }}
+.n-keyboard-compact .n-key {{ min-height: 36px; }}
 .n-key.n-key-accent {{ background: @n_accent; color: @n_on_accent; }}
 .n-phone-search {{ background: @n_card; color: alpha(@n_fg, 0.7); border: none; box-shadow: none;
   border-radius: 999px; padding: 12px 18px; }}

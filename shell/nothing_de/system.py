@@ -3,8 +3,70 @@ import glob
 import os
 import re
 import shutil
+import struct
 
 from gi.repository import Gio, GLib
+
+
+# ------------------------------------------------------------ input devices
+# KEY_Q..KEY_P, KEY_A..KEY_L, KEY_Z..KEY_M and the space bar: a device with all of them is a
+# real keyboard (the power and volume keys of a phone are "keyboards" too, without letters)
+_LETTER_KEYS = list(range(16, 26)) + list(range(30, 39)) + list(range(44, 51)) + [57]
+_ABS_MT_POSITION_X = 0x35
+_INPUT_PROP_DIRECT = 0
+
+
+def _bits(words):
+    """A bitmap from /proc/bus/input/devices ("B: KEY=..."): hex words, the most
+    significant first, each as wide as a C long."""
+    width = struct.calcsize("l") * 8
+    value = 0
+    for word in words.split():
+        value = (value << width) | int(word, 16)
+    return value
+
+
+def input_devices(path="/proc/bus/input/devices"):
+    """The kernel's input devices as dicts: name, handlers and the bitmaps KEY, ABS, PROP."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return []
+    devices = []
+    for block in text.split("\n\n"):
+        dev = {"name": "", "handlers": "", "KEY": 0, "ABS": 0, "PROP": 0}
+        for line in block.splitlines():
+            if line.startswith("N: Name="):
+                dev["name"] = line[8:].strip().strip('"')
+            elif line.startswith("H: Handlers="):
+                dev["handlers"] = line[12:]
+            elif line.startswith("B: "):
+                key, _, val = line[3:].partition("=")
+                if key in ("KEY", "ABS", "PROP"):
+                    try:
+                        dev[key] = _bits(val)
+                    except ValueError:
+                        pass
+        if dev["name"] or dev["handlers"]:
+            devices.append(dev)
+    return devices
+
+
+def has_hardware_keyboard(devices=None):
+    """A keyboard with letters is plugged in (USB, Bluetooth, laptop keyboard)."""
+    for dev in input_devices() if devices is None else devices:
+        if "kbd" in dev["handlers"] and all(dev["KEY"] >> k & 1 for k in _LETTER_KEYS):
+            return True
+    return False
+
+
+def has_touchscreen(devices=None):
+    """A touchscreen (multi-touch, drawn directly on the screen: not a touchpad)."""
+    for dev in input_devices() if devices is None else devices:
+        if dev["ABS"] >> _ABS_MT_POSITION_X & 1 and dev["PROP"] >> _INPUT_PROP_DIRECT & 1:
+            return True
+    return False
 
 
 def run_async(argv, callback=None):

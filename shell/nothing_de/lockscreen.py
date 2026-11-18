@@ -12,7 +12,7 @@ import threading
 import gi
 from gi.repository import Gdk, Gio, GLib, Gtk
 
-from . import dotmatrix
+from . import dotmatrix, system
 from .phone_extras import power_menu_box
 from .widgets import MONTHS, WEEKDAYS
 
@@ -38,11 +38,13 @@ def check_password(user, password):
 KEY_ROWS = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", "!@#$%&*?-_.,/"]
 
 
-def _on_screen_keyboard(entry):
+def _on_screen_keyboard(entry, compact=False):
     """Keys that type into the password entry; ⌫ deletes, ↵ submits. Rows take the width
-    of the screen, like a phone keyboard."""
-    board = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-    board.set_margin_top(18)
+    of the screen, like a phone keyboard. `compact`: lower keys for a flat (landscape) screen."""
+    board = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6 if compact else 8)
+    board.set_margin_top(6 if compact else 18)
+    if compact:
+        board.add_css_class("n-keyboard-compact")
     board.set_margin_start(6)
     board.set_margin_end(6)
 
@@ -242,13 +244,21 @@ class LockScreen:
         now = datetime.datetime.now()
         day = Gtk.Label(label=f"{WEEKDAYS[now.weekday()]}, {now.day}. {MONTHS[now.month - 1]}")
         day.add_css_class("n-caps")
-        clock = dotmatrix.DotLabel(now.strftime("%H:%M"), pitch=16, show_dim=True, align=0.5)
-        clock.set_halign(Gtk.Align.CENTER)
         user = Gtk.Label(label=self.user.upper())
         user.add_css_class("n-caps")
         user.set_margin_top(40)
+        # the phone types on screen; the phone layout on a computer has a real keyboard
+        osk = bool(self.shell.phone) and (system.has_touchscreen()
+                                          or not system.has_hardware_keyboard())
+        geo = monitor.get_geometry() if monitor is not None else None
+        short = bool(geo and geo.height < 720)
+        # a low screen with the on-screen keyboard: smaller clock and no picture, the keys
+        # need the room
+        clock = dotmatrix.DotLabel(now.strftime("%H:%M"), pitch=9 if osk and short else 16,
+                                   show_dim=True, align=0.5)
+        clock.set_halign(Gtk.Align.CENTER)
         avatar = None
-        if self.shell.cfg.get("lock.avatar", True):
+        if self.shell.cfg.get("lock.avatar", True) and not (osk and short):
             avatar = user_avatar(self.user)
             avatar.set_margin_top(40)
             user.set_margin_top(0)
@@ -263,13 +273,17 @@ class LockScreen:
         for w in (day, clock, avatar, user, entry, status):
             if w is not None:
                 box.append(w)
-        if self.shell.phone:
+        if osk:
             # no hardware keyboard on the phone: type the password on screen
             box.set_halign(Gtk.Align.FILL)
             box.set_valign(Gtk.Align.END)
-            box.set_margin_bottom(28)
+            box.set_margin_bottom(12 if short else 28)
             entry.set_size_request(300, -1)
-            box.append(_on_screen_keyboard(entry))
+            if short:
+                # everything has to fit above the keys on a flat screen
+                box.set_spacing(6)
+                user.set_margin_top(0)
+            box.append(_on_screen_keyboard(entry, compact=short))
         overlay = Gtk.Overlay(child=self._background())
         overlay.add_overlay(box)
         win.n_overlay = overlay
