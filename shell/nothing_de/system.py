@@ -146,6 +146,53 @@ def toggle_mute():
         run_async(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"])
 
 
+def parse_sinks(text, default_name=""):
+    """Audio outputs from `pactl -f json list sinks`: [(name, description, is_default)]."""
+    import json
+    try:
+        data = json.loads(text or "[]")
+    except ValueError:
+        return []
+    out = []
+    for sink in data if isinstance(data, list) else []:
+        name = sink.get("name") or ""
+        if not name or name == "nothing_eq":
+            # the equalizer's own input is not a device to pick
+            continue
+        out.append((name, sink.get("description") or name, name == default_name))
+    return out
+
+
+def get_sinks(callback):
+    """callback([(name, description, is_default)]), empty without pactl."""
+    def got_default(default):
+        def got(text):
+            callback(parse_sinks(text, (default or "").strip()))
+        run_async(["pactl", "-f", "json", "list", "sinks"], got)
+    run_async(["pactl", "get-default-sink"], got_default)
+
+
+def set_default_sink(name, callback=None):
+    """Make an output the default and move the streams that play right now over to it."""
+    def moved(_out):
+        if callback:
+            callback()
+
+    def done(_out):
+        def got(text):
+            import json
+            try:
+                inputs = json.loads(text or "[]")
+            except ValueError:
+                inputs = []
+            for si in inputs if isinstance(inputs, list) else []:
+                if "index" in si:
+                    run_async(["pactl", "move-sink-input", str(si["index"]), name])
+            moved(None)
+        run_async(["pactl", "-f", "json", "list", "sink-inputs"], got)
+    run_async(["pactl", "set-default-sink", name], done)
+
+
 def volume_icon(vol, muted):
     if vol is None:
         return "audio-volume-muted-symbolic"

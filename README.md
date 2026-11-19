@@ -47,12 +47,21 @@ Weitere Bilder: [Sperrbildschirm](docs/screenshots/lock.png) · [Rechtsklick-Men
   Pop, Rock, Jazz, Classic) als Widget mit Cover und Player-Tasten; **Dot-Visualizer** (rund, sechs Modi: ein
   Gesicht, das zum Mauszeiger schaut und mitsingt, Puls, Wellen im Takt, Torus, Uhr, Laufschrift);
   **Kassetten-Deck** mit drehenden Spulen und Oszilloskop; die **Island**, eine schwarze Pille unter der Leiste
-  mit dem laufenden Titel, die beim Darüberfahren aufklappt; und die App **Visualizer** mit sechs Szenen
-  (Horizon, Nebula, Orbit, Phosphor, Contour, Ember).
+  mit dem laufenden Titel. Beim Darüberfahren klappt sie auf: Reiter **Musik** (Cover, Tasten, Fortschritt,
+  Zufall, Lautstärke, Wiederholen) und **Geräte** (Audio-Ausgabe wechseln, auch mit Equalizer); und die App
+  **Visualizer** mit sechs Szenen (Horizon, Nebula, Orbit, Phosphor, Contour, Ember).
+- **Sitzungsstart:** Das Punkt-Logo setzt sich aus umherfliegenden Punkten zusammen, danach schreibt die
+  Island ein handschriftliches „hallo“.
+- **Themes** (Einstellungen → Themes): Vorlagen, die Farbe, Hintergrund, Ecken, Transparenz, Schrift und den
+  Look der Musik-Widgets auf einmal setzen; „Überrasch mich“ würfelt ein Theme; per **Theme-Code** lässt sich
+  ein Look kopieren und teilen.
+- **Hintergrund-Karussell** (Super + Umschalt + W oder Rechtsklick → „Hintergrund wechseln“): alle
+  Hintergründe als Karten in einer Reihe, Reiter Bilder, Fotos und Live.
 - **Live-Hintergründe:** Schneewald, Blaue Stunde, Ereignishorizont (ein schwarzes Loch) und Glut, oder ein
   eigenes Video. Auf Wunsch folgt die **Kontrastfarbe dem Hintergrund**.
 - **Sperrbildschirm:** große Punktmatrix-Uhr vor dem abgedunkelten Hintergrundbild, darunter das Benutzerbild
-  (aus AccountsService oder `~/.face`, sonst der Anfangsbuchstabe auf der Kontrastfarbe).
+  (aus AccountsService oder `~/.face`, sonst der Anfangsbuchstabe auf der Kontrastfarbe). Während Musik läuft,
+  zeigt eine Karte Titel, Cover und Steuerung.
 - **Leiste:** Systemmenü, Name der aktiven App mit Fenstermenü, Punkte für die Arbeitsflächen, Netzwerk,
   Lautstärke, Akku, Uhr mit Kalender.
 - **App-Symbole im Nothing-Stil:** Jede App bekommt automatisch ein einfarbiges Symbol auf einem runden,
@@ -109,6 +118,7 @@ WLR_BACKENDS=wayland nothing-wm -s nothing-shell
 | Super + ↑ / ↓ | Maximieren / Wiederherstellen |
 | Super + Ziehen links / rechts | Fenster verschieben / Größe ändern |
 | Super + D | Schreibtisch anzeigen |
+| Super + Umschalt + W | Hintergrund wechseln (Karussell) |
 | Super + L | Sperren |
 | Alt + Tab | Fenster wechseln; Alt halten und Tab erneut drücken blättert weiter, Umschalt rückwärts |
 | Druck | Bildschirmfoto (`grim`) |

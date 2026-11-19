@@ -91,6 +91,8 @@ class DesktopWindow(Gtk.ApplicationWindow):
             group.add_action(a)
 
         add("wallpaper", lambda *_: spawn(["nothing-settings", "--page", "appearance"]))
+        add("switch_wallpaper", lambda *_: self.shell.run_action("wallpapers"))
+        add("themes", lambda *_: self.shell.spawn_settings("themes"))
         add("widgets", lambda *_: self.set_editing(True))
         add("desktop_icons", lambda *_: self._toggle_desktop_icons())
         add("add", lambda _a, p: self.add_widget(p.get_string()), "s")
@@ -100,7 +102,9 @@ class DesktopWindow(Gtk.ApplicationWindow):
 
         menu = Gio.Menu()
         sec = Gio.Menu()
+        sec.append("Hintergrund wechseln", "desk.switch_wallpaper")
         sec.append("Hintergrund ändern …", "desk.wallpaper")
+        sec.append("Themes …", "desk.themes")
         sec.append("Widgets bearbeiten", "desk.widgets")
         sec.append("Desktop-Icons ein-/ausblenden", "desk.desktop_icons")
         sub = Gio.Menu()

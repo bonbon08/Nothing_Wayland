@@ -84,7 +84,7 @@ Fenster von höchstens 1 px Kantenlänge.
 {"event":"action","name":"launcher"}
 ```
 
-Bekannte Namen: `launcher`, `control`, `terminal`, `files`, `settings`, `lock`, `screenshot`, `overview`,
+Bekannte Namen: `launcher`, `control`, `terminal`, `files`, `settings`, `lock`, `screenshot`, `overview`, `wallpapers`,
 `alt_tab` und `alt_tab_end` (Beginn/Schritt und Ende des Fensterwechsels) sowie `screen_off` und
 `screen_on` (Ein-/Aus-Taste, `blank_timeout` oder `screen`; die Telefon-Ansicht sperrt bei `screen_off`),
 `power_menu` (Ein-/Aus-Taste gehalten), `osd_volume` und `osd_brightness` (nach Lautstärke- bzw.
