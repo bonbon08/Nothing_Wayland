@@ -456,7 +456,7 @@ class Shell:
 
 class ShellApp(Gtk.Application):
     def __init__(self):
-        super().__init__(application_id="eu.nothing_de.Shell",
+        super().__init__(application_id=system.shell_app_id(),
                          flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.shell = None
 

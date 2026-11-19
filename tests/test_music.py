@@ -76,3 +76,14 @@ def test_accent_from_pixels():
     r, g, b = theme.hex_to_rgb(hx)
     assert r > 0.7 and g < 0.3 and b < 0.3
     assert theme.accent_from_pixels([(128, 128, 128)] * 100) is None
+
+
+def test_shell_app_id_per_compositor():
+    from gi.repository import Gio
+    from nothing_de import system
+    # the desktop's own shell keeps its name, a nested test compositor gets one of its own
+    assert system.shell_app_id("wayland-0") == "eu.nothing_de.Shell"
+    assert system.shell_app_id("") == "eu.nothing_de.Shell"
+    for display in ("wayland-1", "/run/user/1000/wayland-2", "1x"):
+        app_id = system.shell_app_id(display)
+        assert app_id != "eu.nothing_de.Shell" and Gio.Application.id_is_valid(app_id)
