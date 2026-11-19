@@ -789,4 +789,5 @@ class VisualizerWidget(DesktopWidget):
 
 # Alle Widget-Typen registrieren sich automatisch über @register_widget in
 # widget_sdk.WIDGET_TYPES (dieser Name ist hier importiert).
+from . import widgets_audio  # noqa: E402,F401  equalizer, dot visualizer, cassette
 load_user_widgets()

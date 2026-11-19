@@ -12,7 +12,7 @@ import threading
 import gi
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 
-from . import dotmatrix, system
+from . import dotmatrix, livewall, system
 from .phone_extras import power_menu_box
 from .widgets import MONTHS, WEEKDAYS
 
@@ -240,12 +240,11 @@ class LockScreen:
         cfg = self.shell.cfg
         key = "phone.wallpaper" if self.shell.phone else "wallpaper"
         path = cfg.get(key) or "" if cfg.get("lock.wallpaper", True) else ""
-        if not path or not os.path.exists(path):
+        # a picture, a video or an animated scene (livewall)
+        pic = livewall.wallpaper_widget(path, fps=int(cfg.get("wallpaper_fps") or 20))
+        if pic is None:
             return Gtk.Box(hexpand=True, vexpand=True)
         stack = Gtk.Overlay()
-        pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True,
-                          hexpand=True, vexpand=True)
-        pic.set_filename(path)
         stack.set_child(pic)
         scrim = Gtk.Box(hexpand=True, vexpand=True)
         scrim.add_css_class("n-lock-scrim")

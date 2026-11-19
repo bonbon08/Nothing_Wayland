@@ -10,7 +10,9 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 |---|---|---|---|
 | `theme` | `"dark"` \| `"light"` | `"dark"` | Dunkles oder helles Design |
 | `accent` | `"#RRGGBB"` | `"#D71921"` | Kontrastfarbe |
-| `wallpaper` | Pfad | `…/wallpapers/dots-dark.svg` | Hintergrundbild; leer bedeutet nur Farbe |
+| `wallpaper` | Pfad | `…/wallpapers/dots-dark.svg` | Hintergrundbild; leer bedeutet nur Farbe. Ein Video (`.mp4`, `.webm`, `.mkv`, `.mov`) läuft stumm in Schleife; `live:<szene>` zeigt einen Live-Hintergrund: `live:snow-forest` (Schneewald), `live:blue-hour` (Blaue Stunde), `live:black-hole` (Ereignishorizont), `live:ember` (Glut) |
+| `wallpaper_fps` | 10, 20, 30 | `20` | Bilder pro Sekunde eines Live-Hintergrunds |
+| `accent_auto` | bool | `false` | Kontrastfarbe aus dem Hintergrund: die auffälligste Farbe des Bilds, bei Live-Hintergründen deren eigene. Eine von Hand gewählte Farbe schaltet das ab |
 | `wallpaper_fit` | `"cover"` \| `"contain"` \| `"fill"` | `"cover"` | Füllen / Einpassen / Strecken |
 | `background_color` | `"#RRGGBB"` | `"#000000"` | Farbe hinter oder statt dem Bild |
 | `workspaces` | 1–10 | `4` | Anzahl der Arbeitsflächen |
@@ -45,6 +47,10 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 | `desktop.visualizer_opacity` | 0–1 | `0.9` | Deckkraft des Bands |
 | `lock.wallpaper` | bool | `true` | Sperrbildschirm zeigt das Hintergrundbild (abgedunkelt) |
 | `lock.avatar` | bool | `true` | Sperrbildschirm zeigt das Benutzerbild bzw. den Anfangsbuchstaben |
+| `eq.enabled` | bool | `false` | Systemweiter Equalizer: legt über PipeWire (filter-chain) die Ausgabe „Nothing Equalizer“ an und macht sie zur Standardausgabe; aus = vorherige Ausgabe zurück |
+| `eq.gains` | 10 Zahlen, dB (−12…12) | alle `0` | Verstärkung für 31, 63, 125, 250, 500 Hz, 1, 2, 4, 8, 16 kHz; Änderungen wirken sofort ohne Aussetzer |
+| `island.enabled` | bool | `true` | Island: schwarze Pille unter der Leiste mit dem laufenden Titel; unter dem Mauszeiger und beim Titelwechsel klappt sie zur Karte mit Fortschritt und Tasten auf |
+| `dotvis.mode` | `face`, `pulse`, `ripple`, `torus`, `clock`, `ticker` | `face` | Modus des Dot-Visualizers (Klick oder Scrollen auf das Widget wechselt ihn) |
 
 ### Widgets
 
@@ -72,9 +78,12 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 | `media` | breit | Steuerung des laufenden Players (MPRIS) |
 | `media-round` | klein | Runde Medien-Taste: Klick = Wiedergabe/Pause, Scrollen = Titel wechseln, Ring = Fortschritt |
 | `visualizer` | breit | Audio-Visualizer als Punktmatrix (braucht GStreamer oder `cava`) |
+| `equalizer` | hoch | Laufender Titel mit Cover, Fortschritt und Tasten über einem 10-Band-Equalizer mit Voreinstellungen (Flat, Bass, Treble, Vocal, Pop, Rock, Jazz, Classic). Regler ziehen (auch quer über mehrere), scrollen oder doppelklicken (= 0 dB) |
+| `dot-visualizer` | groß, rund | Punktmatrix mit sechs Modi: Gesicht (schaut zum Mauszeiger, singt mit), Puls, Wellen im Takt, Torus, Uhr, Laufschrift mit Spektrum |
+| `cassette` | Deck | Kassette: Spulen drehen sich, das Band wickelt sich mit dem Fortschritt um; daneben Oszilloskop und LOW/MID/HIGH. Klick = Wiedergabe/Pause, Scrollen = Titel wechseln |
 | `photo` | groß | Ein Foto (`photo`) |
 
-Klein = 172×172, breit = 360×172, groß = 360×360 Pixel.
+Klein = 172×172, breit = 360×172, groß = 360×360, hoch = 360×470, Deck = 440×210 Pixel.
 
 ## Umgebungsvariablen
 

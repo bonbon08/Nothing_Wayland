@@ -31,6 +31,48 @@ def on_color(h):
     return "#000000" if lum > 0.6 else "#FFFFFF"
 
 
+def accent_from_pixels(pixels):
+    """The most striking colour of a picture, from (r, g, b) tuples 0..255: the hue that
+    covers most of the colourful pixels, averaged and made vivid enough for an accent.
+    None for a picture without colour (black and white, grey)."""
+    import colorsys
+    bins = [[0.0, 0.0, 0.0, 0.0] for _ in range(24)]
+    for r, g, b in pixels:
+        h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        if s < 0.25 or v < 0.2:
+            continue
+        weight = s * v
+        k = int(h * 24) % 24
+        bins[k][0] += weight
+        bins[k][1] += r * weight
+        bins[k][2] += g * weight
+        bins[k][3] += b * weight
+    best = max(bins, key=lambda x: x[0])
+    if best[0] < max(1.0, len(pixels) * 0.01):
+        return None
+    r, g, b = (best[i] / best[0] / 255 for i in (1, 2, 3))
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    r, g, b = colorsys.hsv_to_rgb(h, max(s, 0.55), min(max(v, 0.75), 0.95))
+    return "#{:02X}{:02X}{:02X}".format(round(r * 255), round(g * 255), round(b * 255))
+
+
+def accent_from_image(path):
+    """accent_from_pixels for a picture file (scaled down first); None if unreadable."""
+    from gi.repository import GdkPixbuf, GLib
+    try:
+        pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 64, 64, True)
+    except GLib.Error:
+        return None
+    if pb.get_has_alpha():
+        pb = pb.composite_color_simple(pb.get_width(), pb.get_height(),
+                                       GdkPixbuf.InterpType.BILINEAR, 255, 8, 0, 0)
+    data = pb.get_pixels()
+    n, stride = pb.get_n_channels(), pb.get_rowstride()
+    pixels = [tuple(data[y * stride + x * n:y * stride + x * n + 3])
+              for y in range(pb.get_height()) for x in range(pb.get_width())]
+    return accent_from_pixels(pixels)
+
+
 def palette(cfg):
     p = dict(PALETTES.get(cfg.get("theme"), PALETTES["dark"]))
     p["accent"] = cfg.get("accent") or "#D71921"
@@ -151,6 +193,29 @@ window.n-layer > .n-dock {{
 .n-widget-title {{ font-family: "Space Mono", "Adwaita Mono", monospace; font-size: 10.5px;
   letter-spacing: 1.6px; color: @n_muted; }}
 .n-big {{ font-size: 30px; font-weight: 300; }}
+.n-strong {{ font-weight: 700; }}
+.n-cover {{ border-radius: 9999px; background: @n_card_hi; color: @n_muted; font-weight: 700; }}
+.n-eq-preset {{ background: @n_card_hi; color: @n_fg; border: none; box-shadow: none;
+  border-radius: 10px; min-height: 28px; padding: 0 4px; font-size: 12px; }}
+.n-eq-preset:hover {{ background: alpha(@n_fg, 0.14); }}
+.n-eq-preset.on {{ background: @n_accent; color: @n_on_accent; }}
+
+/* ---------- island (always black, like a camera cut-out) ---------- */
+.n-island {{ background: #000000; color: #FFFFFF; border-radius: 999px; min-width: 230px;
+  padding: 6px 12px 6px 6px; margin: 0 10px 10px 10px; border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35); transition: all 220ms ease; }}
+.n-island.open {{ border-radius: 28px; min-width: 360px; padding: 12px 16px 14px 12px; }}
+.n-island .n-cover {{ background: #222222; color: #AAAAAA; }}
+.n-island .n-caps {{ color: rgba(255,255,255,0.55); }}
+.n-island-muted {{ color: rgba(255,255,255,0.6); }}
+.n-island-btn {{ background: transparent; color: #FFFFFF; border: none; box-shadow: none;
+  min-width: 38px; min-height: 38px; border-radius: 999px; padding: 0; }}
+.n-island-btn:hover {{ background: rgba(255,255,255,0.12); }}
+
+/* ---------- visualizer app ---------- */
+.n-vis-title {{ font-size: 46px; font-weight: 300; color: #FFFFFF; }}
+.n-vis-sub {{ font-size: 15px; color: rgba(255,255,255,0.6); }}
+.n-vis-head {{ background: transparent; box-shadow: none; }}
 .n-cal-day {{ font-family: "Space Mono", "Adwaita Mono", monospace; font-size: 11px;
   min-width: 24px; min-height: 17px; border-radius: 99px; font-size: 10px; }}
 .n-cal-day.today {{ background: @n_accent; color: @n_on_accent; }}

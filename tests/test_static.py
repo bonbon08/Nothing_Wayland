@@ -13,7 +13,7 @@ from conftest import ROOT
 PY_FILES = sorted(glob.glob(os.path.join(ROOT, "shell", "nothing_de", "*.py")))
 SHELL_SCRIPTS = [
     "bin/nothing-session", "bin/nothing-session-start", "bin/nothing-settings",
-    "bin/nothing-shell", "install.sh", "tools/vm-test.sh",
+    "bin/nothing-shell", "bin/nothing-visualizer", "install.sh", "tools/vm-test.sh",
 ]
 # Session-Dateien werden ausgenommen: desktop-file-validate meldet „DesktopNames“, ein in
 # Session-Dateien übliches Feld (GNOME, Plasma), als unbekannt.

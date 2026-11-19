@@ -3,6 +3,7 @@ import datetime
 import os
 import shutil
 import sys
+import threading
 
 import gi
 
@@ -10,7 +11,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import layer, system  # noqa: E402
+from . import layer, livewall, system  # noqa: E402
 from .alt_tab import AltTab  # noqa: E402
 from .apps import AppIndex, launch_app, spawn  # noqa: E402
 from .bar import TopBar  # noqa: E402
@@ -18,11 +19,13 @@ from .config import get_config, terminal_command  # noqa: E402
 from .control import ControlCenter  # noqa: E402
 from .desktop import DesktopWindow  # noqa: E402
 from .dock import Dock  # noqa: E402
+from .equalizer import get_equalizer  # noqa: E402
 from .ipc import WindowManager  # noqa: E402
+from .island import Island  # noqa: E402
 from .launcher import Launcher  # noqa: E402
 from .lockscreen import LockScreen  # noqa: E402
 from .notifications import Notifications  # noqa: E402
-from .theme import ThemeManager  # noqa: E402
+from .theme import ThemeManager, accent_from_image  # noqa: E402
 from .tray import StatusNotifierWatcher  # noqa: E402
 from .overview import Overview  # noqa: E402
 from .phone import PhoneHome, PhoneNav, PhoneStatus  # noqa: E402
@@ -68,6 +71,9 @@ class Shell:
         self.osd = Osd(self)
         self.power_menu = PowerMenu(self)
         self.rotation = None       # phone: automatic rotation (phone_session_start)
+        self.island = None         # (Island, monitor) on the first screen of the desktop
+        # the system-wide equalizer comes back with the session when it was switched on
+        self.equalizer = get_equalizer(self.cfg)
 
         self.wm.connect("action", lambda _w, name: self.run_action(name))
         self.wm.connect("connected", lambda *_: self.push_wm_config())
@@ -75,6 +81,9 @@ class Shell:
         self.cfg.connect("changed", lambda *_: self.sync_ontop())
         self.cfg.connect("changed", lambda *_: self.push_wm_config())
         self.cfg.connect("changed", lambda *_: self.sync_monitors())
+        self._accent_for = None
+        self.cfg.connect("changed", lambda *_: self.sync_accent())
+        self.sync_accent()
         if self.wm.available:
             self.push_wm_config()
 
@@ -188,6 +197,7 @@ class Shell:
         if not self.phone:
             for i, mon in enumerate(current):
                 self.per_monitor[mon][0].set_primary(i == 0)
+        self._sync_island(None if self.phone or not current else current[0])
         wanted = [] if self.phone else current if self.cfg.get("dock.all_monitors") else current[:1]
         for mon in list(self.docks):
             if mon not in wanted:
@@ -198,6 +208,38 @@ class Shell:
                 self.docks[mon].present()
         if not layer.supported():
             print("nothing-shell: layer-shell not available — showing preview windows")
+
+    def sync_accent(self):
+        """With "accent_auto" the accent colour follows the wallpaper: a scene brings its
+        own, a picture gives its most striking colour (worked out in the background)."""
+        if not self.cfg.get("accent_auto"):
+            self._accent_for = None
+            return
+        key = "phone.wallpaper" if self.phone else "wallpaper"
+        path = self.cfg.get(key) or ""
+        if path == self._accent_for:
+            return
+        self._accent_for = path
+        scene = livewall.SCENES.get(path[len(livewall.LIVE_PREFIX):]) if livewall.is_live(path) else None
+        if scene is not None:
+            self.cfg.set("accent", scene.ACCENT)
+            return
+        if not path or livewall.is_video(path) or not os.path.exists(path):
+            return
+
+        def work():
+            color = accent_from_image(path)
+            GLib.idle_add(lambda: (color and self._accent_for == path and
+                                   self.cfg.set("accent", color), False)[1])
+        threading.Thread(target=work, daemon=True).start()
+
+    def _sync_island(self, monitor):
+        """The island lives on the first screen and moves along when that changes."""
+        if self.island and self.island[1] is not monitor:
+            self.island[0].destroy()
+            self.island = None
+        if monitor is not None and self.island is None:
+            self.island = (Island(self, monitor), monitor)
 
     @property
     def dock(self):

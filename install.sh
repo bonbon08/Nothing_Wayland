@@ -28,6 +28,7 @@ $SUDO install -m644 shell/nothing_de/*.py "$PREFIX/share/nothing-de/shell/nothin
 $SUDO install -m644 data/wallpapers/* "$PREFIX/share/nothing-de/data/wallpapers/"
 for b in bin/*; do $SUDO install -m755 "$b" "$PREFIX/bin/"; done
 $SUDO install -Dm644 data/applications/nothing-settings.desktop "$PREFIX/share/applications/nothing-settings.desktop"
+$SUDO install -Dm644 data/applications/nothing-visualizer.desktop "$PREFIX/share/applications/nothing-visualizer.desktop"
 # display managers only look in /usr/share/wayland-sessions
 $SUDO install -Dm644 data/sessions/nothing.desktop /usr/share/wayland-sessions/nothing.desktop
 $SUDO install -Dm644 data/portals/nothing-portals.conf /usr/share/xdg-desktop-portal/nothing-portals.conf

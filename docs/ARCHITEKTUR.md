@@ -111,6 +111,12 @@ springt der Cursor an den vom Spiel gewünschten Punkt), Tablet-v2.
 | `desktop.py` | Hintergrund und Widget-Fläche (Verschieben, Rechtsklick-Menü) |
 | `widgets.py` | Die Widgets |
 | `audio.py` | Tonabgriff (GStreamer oder cava) und Zeichnen des Audio-Visualizers |
+| `media.py` | Gemeinsamer Blick auf die MPRIS-Player: Titel, Cover, Fortschritt (läuft zwischen den Abfragen mit der Uhr weiter), Steuerung |
+| `equalizer.py` | Systemweiter 10-Band-Equalizer: eigener `pipewire -c`-Prozess mit filter-chain, Verstärkung live per `pw-cli set-param` |
+| `widgets_audio.py` | Musik-Widgets: Equalizer-Karte, Dot-Visualizer (sechs Modi, numpy), Kassette |
+| `island.py` | Die Island unter der Leiste (Layer-Surface, wächst beim Aufklappen mit) |
+| `livewall.py` | Live-Hintergründe (cairo-Szenen mit zwischengespeichertem Standbild) und Videos als Hintergrund |
+| `visualizer_app.py` | Die App *Visualizer* (`nothing-visualizer`) mit sechs Szenen |
 | `dotmatrix.py` | Punktmatrix-Schrift (5×7) mit cairo |
 | `launcher.py` | App-Suche mit Rechner; Kacheln lassen sich ins Dock ziehen oder per Rechtsklick anheften. Das Overlay lässt den Bereich des Docks frei |
 | `control.py` | Kontrollzentrum |
