@@ -910,6 +910,18 @@ static void keyboard_enter(struct server *s, struct wlr_surface *surface) {
 	}
 }
 
+/* a click or tap on a lock surface gives it the keyboard (one per monitor) */
+static void lock_focus_surface(struct server *s, struct wlr_surface *surface) {
+	if (!surface) {
+		return;
+	}
+	struct wlr_surface *root = wlr_surface_get_root_surface(surface);
+	if (root != s->seat->keyboard_state.focused_surface &&
+			wlr_session_lock_surface_v1_try_from_wlr_surface(root)) {
+		keyboard_enter(s, root);
+	}
+}
+
 static void view_activate(struct view *v, bool on) {
 	if (v->type == VIEW_XDG) {
 		wlr_xdg_toplevel_set_activated(v->xdg, on);
@@ -2277,6 +2289,7 @@ static void cursor_button(struct wl_listener *l, void *data) {
 	uint32_t mods = kb ? wlr_keyboard_get_modifiers(kb) : 0;
 
 	if (s->locked) {
+		lock_focus_surface(s, surface);
 		wlr_seat_pointer_notify_button(s->seat, ev->time_msec, ev->button, ev->state);
 		return;
 	}
@@ -2438,6 +2451,7 @@ static void touch_down(struct wl_listener *l, void *data) {
 	tp->ox = lx - sx;
 	tp->oy = ly - sy;
 	if (s->locked) {
+		lock_focus_surface(s, surface);
 		if (surface) {
 			wlr_seat_touch_notify_down(s->seat, surface, ev->time_msec, ev->touch_id, sx, sy);
 		}
@@ -3695,10 +3709,21 @@ static void xwayland_ready(struct wl_listener *l, void *data) {
 /* ------------------------------------------------------------------ */
 /* session lock                                                       */
 
+/* With several monitors every one gets a lock surface: the keyboard goes to the one on
+ * the monitor under the pointer, not to whichever was mapped last (typing into a screen
+ * nobody looks at). A click or tap on another one moves it there, see lock_focus_surface. */
 static void lock_surface_map(struct wl_listener *l, void *data) {
 	struct lock_surface *ls = wl_container_of(l, ls, map);
-	keyboard_enter(ls->server, ls->surface->surface);
+	struct server *s = ls->server;
+	struct wlr_surface *cur = s->seat->keyboard_state.focused_surface;
+	struct wlr_output *under = wlr_output_layout_output_at(s->output_layout,
+		s->cursor->x, s->cursor->y);
+	if (!cur || !wlr_session_lock_surface_v1_try_from_wlr_surface(cur) ||
+			ls->surface->output == under) {
+		keyboard_enter(s, ls->surface->surface);
+	}
 }
+
 
 static void lock_surface_destroy(struct wl_listener *l, void *data) {
 	struct lock_surface *ls = wl_container_of(l, ls, destroy);

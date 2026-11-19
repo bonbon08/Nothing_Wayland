@@ -18,6 +18,8 @@ unten ein Dock und dazwischen ein Schreibtisch mit Widgets. X11-Programme laufen
 | **Audio-Visualizer, runde Widgets, Wellen-Hintergrund** | **Sperrbildschirm mit Hintergrund und Benutzerbild** |
 |---|---|
 | ![Visualizer](docs/screenshots/visualizer.png) | ![Sperrbildschirm](docs/screenshots/lock-wallpaper.png) |
+| **Live-Hintergrund, Dot-Visualizer, Equalizer, Kassette** | **App „Visualizer“** |
+| ![Live-Hintergrund](docs/screenshots/live-desktop.png) | ![Visualizer-App](docs/screenshots/visualizer-app.png) |
 
 Weitere Bilder: [Sperrbildschirm](docs/screenshots/lock.png) · [Rechtsklick-Menü](docs/screenshots/menu.png) ·
 [Rechner in der Suche](docs/screenshots/calc.png) · [Widgets](docs/screenshots/settings-widgets.png) ·
@@ -41,6 +43,14 @@ Weitere Bilder: [Sperrbildschirm](docs/screenshots/lock.png) · [Rechtsklick-Men
 - **Audio-Visualizer:** Auf Wunsch schlägt am unteren Bildschirmrand, hinter dem Dock, ein Band im Takt der
   laufenden Musik aus: als Welle, Balken oder Punktmatrix, in der Kontrastfarbe oder einer eigenen Farbe
   (Einstellungen → Widgets). Abgegriffen wird der Ton aller Apps über GStreamer oder `cava`.
+- **Musik:** systemweiter **10-Band-Equalizer** über PipeWire mit Voreinstellungen (Flat, Bass, Treble, Vocal,
+  Pop, Rock, Jazz, Classic) als Widget mit Cover und Player-Tasten; **Dot-Visualizer** (rund, sechs Modi: ein
+  Gesicht, das zum Mauszeiger schaut und mitsingt, Puls, Wellen im Takt, Torus, Uhr, Laufschrift);
+  **Kassetten-Deck** mit drehenden Spulen und Oszilloskop; die **Island**, eine schwarze Pille unter der Leiste
+  mit dem laufenden Titel, die beim Darüberfahren aufklappt; und die App **Visualizer** mit sechs Szenen
+  (Horizon, Nebula, Orbit, Phosphor, Contour, Ember).
+- **Live-Hintergründe:** Schneewald, Blaue Stunde, Ereignishorizont (ein schwarzes Loch) und Glut, oder ein
+  eigenes Video. Auf Wunsch folgt die **Kontrastfarbe dem Hintergrund**.
 - **Sperrbildschirm:** große Punktmatrix-Uhr vor dem abgedunkelten Hintergrundbild, darunter das Benutzerbild
   (aus AccountsService oder `~/.face`, sonst der Anfangsbuchstabe auf der Kontrastfarbe).
 - **Leiste:** Systemmenü, Name der aktiven App mit Fenstermenü, Punkte für die Arbeitsflächen, Netzwerk,

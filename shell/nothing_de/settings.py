@@ -14,9 +14,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import dotmatrix, settings_net, thumbs  # noqa: E402
+from . import dotmatrix, livewall, settings_net, thumbs  # noqa: E402
 from .apps import app_icon  # noqa: E402
 from .config import ACCENTS, WALLPAPER_DIR, get_config  # noqa: E402
+from .equalizer import PRESETS, matching_preset, preset_gains  # noqa: E402
 from .ipc import WindowManager  # noqa: E402
 from .theme import ThemeManager, hex_to_rgb  # noqa: E402
 from .widget_sdk import WIDGET_TYPES  # noqa: E402
@@ -162,6 +163,11 @@ class AppearancePage:
         box.append(self.color_btn)
         row.set_child(box)
         g.add(row)
+        self.auto_row = Adw.SwitchRow(title="Farbe aus dem Hintergrund",
+                                      subtitle="Die Kontrastfarbe passt sich dem Hintergrundbild an")
+        self.auto_row.set_active(bool(cfg.get("accent_auto")))
+        self.auto_row.connect("notify::active", lambda r, _p: cfg.set("accent_auto", r.get_active()))
+        g.add(self.auto_row)
         self.widget.add(g)
 
         g = group("Anzeige", "Für sehr hochauflösende Bildschirme, auf denen alles winzig wirkt. "
@@ -191,7 +197,8 @@ class AppearancePage:
         g.add(self.flow)
         self.fill_wallpapers()
 
-        choose = Adw.ActionRow(title="Eigenes Bild wählen …", activatable=True)
+        choose = Adw.ActionRow(title="Eigenes Bild oder Video wählen …" if not PHONE
+                               else "Eigenes Bild wählen …", activatable=True)
         choose.add_suffix(Gtk.Image(icon_name="folder-pictures-symbolic"))
         choose.connect("activated", self.choose_file)
         g.add(choose)
@@ -213,6 +220,38 @@ class AppearancePage:
         none = Adw.ActionRow(title="Kein Bild (nur Farbe)", activatable=True)
         none.connect("activated", lambda *_: self.set_wallpaper(""))
         g.add(none)
+        self.widget.add(g)
+
+        g = group("Live-Hintergründe", "Bewegte Szenen hinter dem Schreibtisch. Eigene Videos "
+                  "(MP4, WebM, MKV) lassen sich oben über „Eigenes Bild oder Video wählen“ setzen.")
+        g.set_visible(not PHONE)
+        live = Gtk.FlowBox(max_children_per_line=4, min_children_per_line=2,
+                           selection_mode=Gtk.SelectionMode.NONE, row_spacing=8,
+                           column_spacing=8, homogeneous=True)
+        for key, scene in livewall.SCENES.items():
+            pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True)
+            pic.set_size_request(140, 80)
+            pic.set_paintable(livewall.thumbnail(key))
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            card.append(pic)
+            name = Gtk.Label(label=scene.NAME, xalign=0)
+            name.add_css_class("caption-heading")
+            card.append(name)
+            btn = Gtk.Button(child=card, tooltip_text=scene.DESCRIPTION)
+            btn.add_css_class("flat")
+            btn.set_overflow(Gtk.Overflow.HIDDEN)
+            css_for(btn, "button { padding: 0 0 6px 0; border-radius: 12px; }")
+            btn.connect("clicked", lambda _b, k=key: self.set_wallpaper(livewall.LIVE_PREFIX + k))
+            live.append(btn)
+        g.add(live)
+        self._fps = [10, 20, 30]
+        fps = Adw.ComboRow(title="Bewegung", subtitle="Weniger Bilder pro Sekunde schonen den Akku",
+                           model=Gtk.StringList.new(["Sparsam (10/s)", "Normal (20/s)",
+                                                     "Flüssig (30/s)"]))
+        cur = int(cfg.get("wallpaper_fps") or 20)
+        fps.set_selected(min(range(3), key=lambda i: abs(self._fps[i] - cur)))
+        fps.connect("notify::selected", lambda r, _p: cfg.set("wallpaper_fps", self._fps[r.get_selected()]))
+        g.add(fps)
         self.widget.add(g)
 
         g = group("Sperrbildschirm")
@@ -260,8 +299,11 @@ class AppearancePage:
 
     def choose_file(self, *_):
         dlg = Gtk.FileDialog(title="Hintergrundbild wählen")
-        filt = Gtk.FileFilter(name="Bilder")
+        filt = Gtk.FileFilter(name="Bilder und Videos" if not PHONE else "Bilder")
         filt.add_mime_type("image/*")
+        if not PHONE:
+            # played muted in a loop (livewall.py)
+            filt.add_mime_type("video/*")
         store = Gio.ListStore.new(Gtk.FileFilter)
         store.append(filt)
         dlg.set_filters(store)
@@ -279,12 +321,14 @@ class AppearancePage:
         self.cfg.set(self.wp_key, path)
 
     def set_accent(self, hx):
+        # a colour picked by hand ends "Farbe aus dem Hintergrund"
+        self.cfg.set("accent_auto", False, notify=False)
         self.cfg.set("accent", hx)
 
     def _custom_color(self, btn, _p):
         hx = rgba_hex(btn.get_rgba())
         if hx.lower() != (self.cfg.get("accent") or "").lower():
-            self.cfg.set("accent", hx)
+            self.set_accent(hx)
 
     def sync(self):
         sync_form(self.cfg, self.form)
@@ -297,11 +341,16 @@ class AppearancePage:
                 b.add_css_class("sel")
             else:
                 b.remove_css_class("sel")
+        self.auto_row.set_active(bool(self.cfg.get("accent_auto")))
         p = self.cfg.get(self.wp_key) or ""
         if p != getattr(self, "_preview_path", None):
             self._preview_path = p
             self.preview.set_paintable(None)
-            if p and os.path.exists(p):
+            if livewall.is_live(p):
+                self.preview.set_paintable(livewall.thumbnail(p[len(livewall.LIVE_PREFIX):], 960, 400))
+            elif livewall.is_video(p):
+                self.preview.set_paintable(livewall.video_paintable(p))
+            elif p and os.path.exists(p):
                 thumbs.load_async(p, 1200, 800, lambda t, p=p: self._preview_path == p and
                                   self.preview.set_paintable(t))
 
@@ -370,6 +419,22 @@ class WidgetsPage:
         g.add(own)
         self.widget.add(g)
 
+        g = group("Musik", "Der Equalizer wirkt auf alles, was der Rechner abspielt (über "
+                  "PipeWire). Das Widget „Equalizer“ zeigt die Regler auf dem Schreibtisch.")
+        self.island_row = Adw.SwitchRow(title="Island",
+                                        subtitle="Was gerade läuft, als Pille unter der Leiste")
+        self.island_row.connect("notify::active", lambda r, _p: cfg.set("island.enabled", r.get_active()))
+        g.add(self.island_row)
+        self.eq_row = Adw.SwitchRow(title="Equalizer", subtitle="Systemweit, 10 Bänder")
+        self.eq_row.connect("notify::active", lambda r, _p: cfg.set("eq.enabled", r.get_active()))
+        g.add(self.eq_row)
+        self._presets = [k for k, _n, _g in PRESETS]
+        self.preset_row = Adw.ComboRow(title="Voreinstellung", model=Gtk.StringList.new(
+            [n for _k, n, _g in PRESETS] + ["Eigene"]))
+        self.preset_row.connect("notify::selected", self._pick_preset)
+        g.add(self.preset_row)
+        self.widget.add(g)
+
         g = group("Wetter", "Daten von open-meteo.com (ohne Konto).")
         self.city = Adw.EntryRow(title="Ort suchen", show_apply_button=True)
         self.city.set_text(cfg.get("weather.city") or "")
@@ -409,6 +474,19 @@ class WidgetsPage:
             self.active.add(r)
             self.rows.append(r)
         self.photo_row.set_subtitle(os.path.basename(self.cfg.get("photo") or "") or "Keins gewählt")
+        self.island_row.set_active(bool(self.cfg.get("island.enabled", True)))
+        self.eq_row.set_active(bool(self.cfg.get("eq.enabled")))
+        cur = matching_preset([float(v) for v in self.cfg.get("eq.gains") or [0] * 10])
+        self._syncing = True
+        self.preset_row.set_selected(self._presets.index(cur) if cur in self._presets
+                                     else len(self._presets))
+        self._syncing = False
+
+    def _pick_preset(self, row, _p):
+        i = row.get_selected()
+        if getattr(self, "_syncing", False) or i >= len(self._presets):
+            return
+        self.cfg.set("eq.gains", preset_gains(self._presets[i]))
 
     def add(self, wtype):
         specs = list(self.cfg.get("widgets") or [])

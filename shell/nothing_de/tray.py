@@ -7,6 +7,8 @@ bereit und zeigt jedes Item als Knopf in der Leiste: Linksklick ruft
 """
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
+from . import system
+
 SN_WATCHER_NAME = "org.kde.StatusNotifierWatcher"
 SN_WATCHER_PATH = "/StatusNotifierWatcher"
 SN_ITEM = "org.kde.StatusNotifierItem"
@@ -49,7 +51,7 @@ class StatusNotifierWatcher(GObject.Object):
 
     def start(self):
         Gio.bus_own_name(Gio.BusType.SESSION, SN_WATCHER_NAME,
-                         Gio.BusNameOwnerFlags.REPLACE | Gio.BusNameOwnerFlags.ALLOW_REPLACEMENT,
+                         system.bus_owner_flags(),
                          self._on_bus, None,
                          lambda *_: print("nothing-de: tray watcher name taken"))
 

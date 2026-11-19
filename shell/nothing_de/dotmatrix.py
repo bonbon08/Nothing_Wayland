@@ -67,6 +67,19 @@ def _glyph(ch):
     return GLYPHS.get(ch, GLYPHS["?"])
 
 
+def bitmap(text):
+    """`text` as rows of 0/1 (7 rows, one blank column between glyphs) for drawing it
+    into a dot grid of one's own."""
+    rows = [[] for _ in range(ROWS)]
+    for i, ch in enumerate(text):
+        g = _glyph(ch)
+        for r in range(ROWS):
+            if i:
+                rows[r].append(0)
+            rows[r].extend(1 if c == "1" else 0 for c in g[r])
+    return rows
+
+
 def columns(text):
     """Total number of dot columns, including 1 column spacing between glyphs."""
     if not text:

@@ -6,7 +6,7 @@ import traceback
 
 from gi.repository import Gdk, Gio, GLib, Gtk
 
-from . import audio, layer
+from . import audio, layer, livewall
 from .apps import spawn
 from .desktop_icons import DesktopIcons
 from .theme import hex_to_rgb
@@ -26,6 +26,7 @@ class DesktopWindow(Gtk.ApplicationWindow):
         self.items = []        # (widget, spec)
         self._rendered = None
         self._wallpaper = None
+        self.live = None           # LiveWallpaper of an animated scene
         layer.setup(self, layer="background", anchors=("top", "bottom", "left", "right"),
                     exclusive=-1, keyboard="on_demand", namespace="nothing-desktop",
                     monitor=monitor)
@@ -131,7 +132,8 @@ class DesktopWindow(Gtk.ApplicationWindow):
         path = self.cfg.get("wallpaper") or ""
         fit = self.cfg.get("wallpaper_fit") or "cover"
         color = self.cfg.get("background_color") or "#000000"
-        key = (path, fit, color)
+        fps = int(self.cfg.get("wallpaper_fps") or 20)
+        key = (path, fit, color, fps)
         if key == self._wallpaper:
             return
         self._wallpaper = key
@@ -139,7 +141,19 @@ class DesktopWindow(Gtk.ApplicationWindow):
         self.picture.set_content_fit({
             "cover": Gtk.ContentFit.COVER, "contain": Gtk.ContentFit.CONTAIN,
             "fill": Gtk.ContentFit.FILL}.get(fit, Gtk.ContentFit.COVER))
-        if path and os.path.exists(path):
+        if self.live is not None:
+            self.bg.remove(self.live)
+            self.live = None
+        scene = livewall.scene_for(path)
+        self.picture.set_visible(scene is None)
+        if scene is not None:
+            # an animated scene instead of the picture
+            self.live = livewall.LiveWallpaper(scene, fps)
+            self.bg.append(self.live)
+            self.picture.set_paintable(None)
+        elif livewall.is_video(path) and os.path.exists(path):
+            self.picture.set_paintable(livewall.video_paintable(path))
+        elif path and os.path.exists(path):
             self.picture.set_filename(path)
         else:
             self.picture.set_paintable(None)

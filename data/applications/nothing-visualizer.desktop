@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Visualizer
+Comment=Die laufende Musik als bewegte Szenen
+Exec=nothing-visualizer
+Icon=multimedia-player
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;
+Keywords=Musik;Visualisierung;Spektrum;Audio;
+StartupNotify=true
+StartupWMClass=eu.nothing_de.Visualizer

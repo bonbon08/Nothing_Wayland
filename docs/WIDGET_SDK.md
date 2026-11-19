@@ -17,7 +17,7 @@ from nothing_widget_sdk import DesktopWidget, register_widget
 class UhrWidget(DesktopWidget):
     TYPE = "uhr"                       # eindeutiger Typ-Key
     NAME = "Uhr"                       # Anzeigename in der Auswahl
-    SIZE = "wide"                      # "small" | "wide" | "large"
+    SIZE = "wide"                      # "small" | "wide" | "large" | "tall" | "deck"
     REFRESH = 1                        # Aktualisierung alle 1 Sekunde (0 = aus)
 
     def build(self):

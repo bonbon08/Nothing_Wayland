@@ -50,6 +50,10 @@ DEFAULTS = {
     "wallpaper": os.path.join(WALLPAPER_DIR, "dots-dark.svg"),
     "wallpaper_fit": "cover",        # cover | contain | fill
     "background_color": "#000000",
+    # frames a second of an animated wallpaper ("live:<scene>", see livewall.py)
+    "wallpaper_fps": 20,
+    # "Neuer Look": the accent colour follows the wallpaper
+    "accent_auto": False,
     "workspaces": 4,
     "form": "auto",                  # auto (portrait screen = phone) | phone | desktop
     "display": {"scale": 1.0},
@@ -92,6 +96,11 @@ DEFAULTS = {
     # lock screen: wallpaper behind the clock (dimmed) and the user's picture
     "lock": {"wallpaper": True, "avatar": True},
     "ontop_apps": [],                # desktop ids whose windows stay above other windows
+    # system-wide equalizer (PipeWire filter-chain), gains in dB for 31 Hz … 16 kHz
+    "eq": {"enabled": False, "gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},
+    # the pill under the top bar showing what is playing
+    "island": {"enabled": True},
+    "dotvis": {"mode": "face"},      # face | pulse | ripple | torus | clock | ticker
 }
 
 

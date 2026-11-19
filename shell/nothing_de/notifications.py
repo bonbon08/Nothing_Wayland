@@ -1,7 +1,7 @@
 """Minimal org.freedesktop.Notifications server with Nothing-style toasts."""
 from gi.repository import Gio, GLib, Gtk, Pango
 
-from . import layer
+from . import layer, system
 
 XML = """
 <node>
@@ -45,7 +45,7 @@ class Notifications:
         self.win.set_child(self.box)
         self.info = Gio.DBusNodeInfo.new_for_xml(XML)
         Gio.bus_own_name(Gio.BusType.SESSION, "org.freedesktop.Notifications",
-                         Gio.BusNameOwnerFlags.REPLACE | Gio.BusNameOwnerFlags.ALLOW_REPLACEMENT,
+                         system.bus_owner_flags(),
                          self._on_bus, None, lambda *_: print("nothing-de: notification name taken"))
 
     def _on_bus(self, conn, _name):

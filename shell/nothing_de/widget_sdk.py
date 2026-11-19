@@ -41,7 +41,9 @@ from gi.repository import GLib, Gtk
 from .config import CONFIG_DIR
 from .theme import hex_to_rgb
 
-SIZES = {"small": (172, 172), "wide": (360, 172), "large": (360, 360)}
+SIZES = {"small": (172, 172), "wide": (360, 172), "large": (360, 360),
+         # the equalizer card and the cassette deck
+         "tall": (360, 470), "deck": (440, 210)}
 
 #: Globale Registrierung aller bekannten Widget-Typen (key -> Klasse).
 WIDGET_TYPES: Dict[str, Type["DesktopWidget"]] = {}
@@ -83,7 +85,7 @@ class DesktopWidget(Gtk.Box):
     Attribute (Klassen-Attribute überschreiben):
         TYPE    : str   — eindeutiger Typ-Key (z. B. "mein-widget")
         NAME    : str   — Anzeigename in der Einstellungs-Auswahl
-        SIZE    : str   — "small" | "wide" | "large"
+        SIZE    : str   — "small" | "wide" | "large" | "tall" | "deck"
         REFRESH : int   — Sekunden bis zur automatischen Aktualisierung (0 = aus)
     """
 

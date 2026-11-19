@@ -8,6 +8,27 @@ import struct
 from gi.repository import Gio, GLib
 
 
+def shell_app_id(display=None):
+    """One shell per compositor, not per D-Bus session: a nothing-wm started for testing
+    inside the running desktop shares its session bus, and with a single name its shell
+    would only hand over to the running one and quit, leaving the test screen black."""
+    display = os.environ.get("WAYLAND_DISPLAY", "") if display is None else display
+    suffix = re.sub(r"[^A-Za-z0-9_]", "_", os.path.basename(display))
+    if not suffix or suffix == "wayland_0":
+        return "eu.nothing_de.Shell"
+    return "eu.nothing_de.Shell." + ("d" + suffix if suffix[0].isdigit() else suffix)
+
+
+def bus_owner_flags():
+    """Flags for the shell's well-known names (notifications, tray watcher): the desktop's
+    shell takes them over, a test shell in a nested nothing-wm leaves them to it (it would
+    take them away and they would be gone once the test ends)."""
+    flags = Gio.BusNameOwnerFlags.ALLOW_REPLACEMENT
+    if shell_app_id() == "eu.nothing_de.Shell":
+        flags |= Gio.BusNameOwnerFlags.REPLACE
+    return flags
+
+
 # ------------------------------------------------------------ input devices
 # KEY_Q..KEY_P, KEY_A..KEY_L, KEY_Z..KEY_M and the space bar: a device with all of them is a
 # real keyboard (the power and volume keys of a phone are "keyboards" too, without letters)

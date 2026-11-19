@@ -14,6 +14,8 @@ optdepends=('networkmanager: network status and Wi-Fi toggle'
             'brightnessctl: brightness keys' 'playerctl: media keys'
             'gst-plugins-good: audio visualizer (pulsesrc + spectrum)'
             'cava: audio visualizer, alternative to GStreamer'
+            'pipewire: system-wide equalizer (filter-chain)'
+            'gst-libav: video wallpapers in MP4 (H.264)'
             'gnome-control-center: adding online accounts (Google, Microsoft, …)'
             'gnome-keyring: storing online account secrets')
 makedepends=(meson ninja wayland-protocols)
@@ -31,6 +33,7 @@ package() {
   install -m644 data/wallpapers/* "$pkgdir/usr/share/nothing-de/data/wallpapers/"
   for b in bin/*; do install -Dm755 "$b" "$pkgdir/usr/bin/$(basename "$b")"; done
   install -Dm644 data/applications/nothing-settings.desktop "$pkgdir/usr/share/applications/nothing-settings.desktop"
+  install -Dm644 data/applications/nothing-visualizer.desktop "$pkgdir/usr/share/applications/nothing-visualizer.desktop"
   install -Dm644 data/sessions/nothing.desktop "$pkgdir/usr/share/wayland-sessions/nothing.desktop"
   install -Dm644 data/portals/nothing-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/nothing-portals.conf"
   install -Dm644 data/icons/nothing-torch-symbolic.svg "$pkgdir/usr/share/icons/hicolor/scalable/actions/nothing-torch-symbolic.svg"
