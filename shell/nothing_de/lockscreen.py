@@ -10,7 +10,7 @@ import subprocess
 import threading
 
 import gi
-from gi.repository import Gdk, Gio, GLib, Gtk
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 
 from . import dotmatrix, system
 from .phone_extras import power_menu_box
@@ -95,6 +95,20 @@ def avatar_path(user):
     return None
 
 
+def _avatar_texture(path, size):
+    """The picture cut to a centred square of size×size pixels (×2 for HiDPI)."""
+    px = size * 2
+    try:
+        pb = GdkPixbuf.Pixbuf.new_from_file(path)
+    except GLib.Error:
+        return None
+    w, h = pb.get_width(), pb.get_height()
+    side = min(w, h)
+    pb = pb.new_subpixbuf((w - side) // 2, (h - side) // 2, side, side)
+    pb = pb.scale_simple(px, px, GdkPixbuf.InterpType.BILINEAR)
+    return Gdk.Texture.new_for_pixbuf(pb)
+
+
 def user_avatar(user, size=84):
     """A round picture of the user; without one, the initial on the accent colour."""
     frame = Gtk.Box(halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
@@ -102,10 +116,13 @@ def user_avatar(user, size=84):
     frame.set_size_request(size, size)
     frame.set_overflow(Gtk.Overflow.HIDDEN)
     path = avatar_path(user)
-    if path:
+    texture = _avatar_texture(path, size) if path else None
+    if texture is not None:
+        # scaled down beforehand: a Gtk.Picture asks for its picture's full size, a large
+        # ~/.face would blow the circle up to fill the lock screen
         pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True,
                           hexpand=True, vexpand=True)
-        pic.set_filename(path)
+        pic.set_paintable(texture)
         frame.append(pic)
     else:
         frame.add_css_class("n-avatar-initial")
@@ -288,6 +305,8 @@ class LockScreen:
         overlay.add_overlay(box)
         win.n_overlay = overlay
         win.n_power = None
+        win.n_entry = entry
+        win.n_status = status
         win.set_child(overlay)
 
         def tick():
@@ -297,10 +316,26 @@ class LockScreen:
             return True
         GLib.timeout_add_seconds(5, tick)
 
+        def mirror(_e):
+            # one lock window per monitor: what is typed shows on every screen, whichever
+            # of them has the keyboard
+            text = entry.get_text()
+            for other in self.windows:
+                if other is not win and other.n_entry.get_text() != text:
+                    other.n_entry.set_text(text)
+        entry.connect("changed", mirror)
+
+        def set_all(sensitive, label, error=False):
+            for other in self.windows:
+                other.n_entry.set_sensitive(sensitive)
+                other.n_status.set_label(label)
+                if error:
+                    other.n_entry.add_css_class("error")
+                    other.n_entry.set_text("")
+
         def submit(_e):
             pw = entry.get_text()
-            entry.set_sensitive(False)
-            status.set_label("…")
+            set_all(False, "…")
 
             def work():
                 ok = check_password(self.user, pw)
@@ -310,15 +345,14 @@ class LockScreen:
                 if ok and self.instance:
                     self.instance.unlock()
                     return False
-                entry.set_sensitive(True)
-                entry.set_text("")
-                entry.add_css_class("error")
-                status.set_label("Falsches Passwort")
+                set_all(True, "Falsches Passwort", error=True)
                 entry.grab_focus()
                 return False
             threading.Thread(target=work, daemon=True).start()
         entry.connect("activate", submit)
         self.instance.assign_window_to_monitor(win, monitor)
+        if self.windows:
+            entry.set_text(self.windows[0].n_entry.get_text())
         self.windows.append(win)
         win.present()
         entry.grab_focus()
