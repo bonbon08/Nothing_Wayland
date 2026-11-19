@@ -78,6 +78,8 @@ class Media(GObject.Object):
         self._position = 0          # µs, at _pos_time
         self._pos_time = time.monotonic()
         self.status = ""            # Playing | Paused | Stopped | ""
+        self.shuffle = None         # True/False, None if the player does not say
+        self.loop = None            # None | Track | Playlist, None if unknown
         self._users = 0
         self._timer = None
         self._art_wanted = None
@@ -208,6 +210,8 @@ class Media(GObject.Object):
         self.track_id = meta.get("mpris:trackid")
         self.length = int(meta.get("mpris:length") or 0)
         self.status = props.get("PlaybackStatus") or ""
+        self.shuffle = props.get("Shuffle")
+        self.loop = props.get("LoopStatus")
         pos = props.get("Position")
         if pos is not None:
             self._position = int(pos)
@@ -248,6 +252,30 @@ class Media(GObject.Object):
             self.emit("changed")
         GLib.timeout_add(250, lambda: (self.poll(), False)[1])
 
+    def set_prop(self, name, value):
+        """Set a player property (Shuffle "b", LoopStatus "s")."""
+        if self.proxy is None:
+            return
+        sig = "b" if isinstance(value, bool) else "s"
+        self.proxy.call("org.freedesktop.DBus.Properties.Set",
+                        GLib.Variant("(ssv)", ("org.mpris.MediaPlayer2.Player", name,
+                                               GLib.Variant(sig, value))),
+                        Gio.DBusCallFlags.NONE, -1, None, None)
+        GLib.timeout_add(250, lambda: (self.poll(), False)[1])
+
+    def toggle_shuffle(self):
+        if self.shuffle is not None:
+            self.shuffle = not self.shuffle
+            self.set_prop("Shuffle", self.shuffle)
+            self.emit("changed")
+
+    def cycle_loop(self):
+        """None → Playlist → Track → None (MPRIS LoopStatus)."""
+        if self.loop is not None:
+            self.loop = next_loop(self.loop)
+            self.set_prop("LoopStatus", self.loop)
+            self.emit("changed")
+
     def seek(self, fraction):
         if self.proxy is None or not self.length or not self.track_id:
             return
@@ -267,6 +295,10 @@ def get_media():
     if _media is None:
         _media = Media()
     return _media
+
+
+def next_loop(status):
+    return {"None": "Playlist", "Playlist": "Track"}.get(status, "None")
 
 
 def art_initial(title):

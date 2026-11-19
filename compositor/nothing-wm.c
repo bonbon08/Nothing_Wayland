@@ -1688,6 +1688,10 @@ static bool handle_keybinding(struct server *s, xkb_keysym_t sym, uint32_t mods)
 	case XKB_KEY_w:
 		send_action(s, "overview");
 		return true;
+	case XKB_KEY_W:
+		/* Super + Shift + W: the wallpaper switcher */
+		send_action(s, shift ? "wallpapers" : "overview");
+		return true;
 	case XKB_KEY_E:
 		if (shift) {
 			wl_display_terminate(s->display);

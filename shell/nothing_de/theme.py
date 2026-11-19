@@ -80,8 +80,48 @@ def palette(cfg):
     return p
 
 
+def _rgba(h, a):
+    r, g, b = hex_to_rgb(h)
+    return f"rgba({round(r * 255)},{round(g * 255)},{round(b * 255)},{a:.2f})"
+
+
+def scale_radii(css, factor):
+    """Corner rounding of the theme ("style.radius"): every `border-radius: Npx` times
+    `factor`; pills and circles (99px and more) stay round."""
+    import re
+    if abs(factor - 1.0) < 0.01:
+        return css
+
+    def one(m):
+        n = float(m.group(1))
+        return m.group(0) if n >= 99 else f"border-radius: {round(n * factor, 1):g}px"
+    return re.sub(r"border-radius: (\d+(?:\.\d+)?)px", one, css)
+
+
+def style_css(cfg, p):
+    """Theme extras: see-through cards and panels ("style.glass") and the font."""
+    out = []
+    glass = max(0.0, min(0.8, float(cfg.get("style.glass") or 0)))
+    if glass > 0.01:
+        a = 1.0 - glass
+        out.append(f".n-card {{ background: {_rgba(p['card'], a)}; }}")
+        out.append(f".n-panel, .n-toast, popover.n-menu > contents {{ background: {_rgba(p['surface'], min(1.0, a + 0.15))}; }}")
+        out.append(f"window.n-layer > .n-dock {{ background: {_rgba(p['surface'], min(1.0, a + 0.1))}; }}")
+    if cfg.get("style.font") == "mono":
+        out.append('.n-root, .n-root label, .n-root entry, .n-root button '
+                   '{ font-family: "Space Mono", "JetBrains Mono", "Adwaita Mono", monospace; }')
+    return "\n".join(out)
+
+
 def build_css(cfg):
     p = palette(cfg)
+    css = _base_css(cfg, p)
+    radius = cfg.get("style.radius")
+    css = scale_radii(css, 1.0 if radius is None else float(radius))
+    return css + style_css(cfg, p)
+
+
+def _base_css(cfg, p):
     return f"""
 @define-color n_bg {p['bg']};
 @define-color n_surface {p['surface']};
@@ -204,13 +244,52 @@ window.n-layer > .n-dock {{
 .n-island {{ background: #000000; color: #FFFFFF; border-radius: 999px; min-width: 230px;
   padding: 6px 12px 6px 6px; margin: 0 10px 10px 10px; border: 1px solid rgba(255,255,255,0.08);
   box-shadow: 0 4px 14px rgba(0,0,0,0.35); transition: all 220ms ease; }}
-.n-island.open {{ border-radius: 28px; min-width: 360px; padding: 12px 16px 14px 12px; }}
+.n-island.open {{ border-radius: 28px; min-width: 380px; padding: 12px 16px 14px 12px; }}
 .n-island .n-cover {{ background: #222222; color: #AAAAAA; }}
 .n-island .n-caps {{ color: rgba(255,255,255,0.55); }}
 .n-island-muted {{ color: rgba(255,255,255,0.6); }}
 .n-island-btn {{ background: transparent; color: #FFFFFF; border: none; box-shadow: none;
   min-width: 38px; min-height: 38px; border-radius: 999px; padding: 0; }}
 .n-island-btn:hover {{ background: rgba(255,255,255,0.12); }}
+.n-island.greet {{ border-radius: 26px; padding: 8px 18px 10px 12px; }}
+.n-island-sub {{ font-family: "Space Mono", "Adwaita Mono", monospace; font-size: 9.5px;
+  letter-spacing: 1.4px; color: rgba(255,255,255,0.55); }}
+.n-island-foot {{ font-size: 11px; color: rgba(255,255,255,0.5); }}
+.n-island-art {{ border-radius: 16px; }}
+button.n-island-tab {{ background: transparent; color: rgba(255,255,255,0.45); border: none;
+  box-shadow: none; padding: 0 0 4px 0; min-height: 0; min-width: 0; font-weight: 700;
+  border-radius: 0; border-bottom: 2px solid transparent; }}
+button.n-island-tab.on {{ color: #FFFFFF; border-bottom-color: @n_accent; }}
+button.n-island-play {{ background: #FFFFFF; color: #000000; border: none; box-shadow: none;
+  min-width: 40px; min-height: 40px; border-radius: 999px; padding: 0; }}
+button.n-island-small {{ background: transparent; color: rgba(255,255,255,0.7); border: none;
+  box-shadow: none; min-width: 30px; min-height: 30px; border-radius: 999px; padding: 0; }}
+button.n-island-small:hover {{ background: rgba(255,255,255,0.12); }}
+button.n-island-small.on {{ color: @n_accent; }}
+button.n-island-small:disabled {{ color: rgba(255,255,255,0.2); }}
+scale.n-island-volume trough {{ min-height: 4px; border-radius: 99px; background: rgba(255,255,255,0.18); border: none; }}
+scale.n-island-volume highlight {{ min-width: 0; margin: 0; border-radius: 99px; background: #FFFFFF; border: none; }}
+scale.n-island-volume slider {{ min-width: 12px; min-height: 12px; margin: -5px; background: #FFFFFF;
+  border: none; box-shadow: none; border-radius: 99px; }}
+button.n-island-device {{ background: transparent; color: #FFFFFF; border: none; box-shadow: none;
+  border-radius: 14px; padding: 8px 10px; }}
+button.n-island-device:hover {{ background: rgba(255,255,255,0.08); }}
+button.n-island-device.on {{ background: rgba(255,255,255,0.12); }}
+
+/* ---------- wallpaper switcher ---------- */
+.n-scrim.n-wall-scrim {{ background: rgba(0,0,0,0.72); }}
+.n-panel.n-wall-panel {{ background: transparent; border: none; box-shadow: none; padding: 0; }}
+.n-wall-card {{ border-radius: 22px; background: #111111; border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.55); }}
+.n-wall-card.front {{ border: 2px solid @n_accent; }}
+.n-wall-tag {{ font-family: "Space Mono", "Adwaita Mono", monospace; font-size: 10px;
+  letter-spacing: 1.6px; color: #FFFFFF; background: rgba(0,0,0,0.55); border-radius: 99px;
+  padding: 3px 9px; }}
+.n-wall-name {{ font-size: 18px; font-weight: 600; color: #FFFFFF; }}
+.n-wall-panel .n-caps {{ color: rgba(255,255,255,0.6); }}
+button.n-wall-tab {{ background: rgba(255,255,255,0.08); color: #FFFFFF; border: none; box-shadow: none;
+  border-radius: 999px; padding: 2px 14px; min-height: 26px; font-size: 12px; }}
+button.n-wall-tab.on {{ background: #FFFFFF; color: #000000; }}
 
 /* ---------- visualizer app ---------- */
 .n-vis-title {{ font-size: 46px; font-weight: 300; color: #FFFFFF; }}
@@ -278,6 +357,13 @@ scale.n-slider slider {{ min-width: 0; min-height: 0; background: transparent; b
 .n-lock entry:focus-within {{ border-color: alpha(@n_fg, 0.35); outline: none; box-shadow: none; }}
 .n-lock entry.error {{ border-color: @n_accent; }}
 .n-lock-scrim {{ background: alpha(@n_bg, 0.45); }}
+.n-lock-media {{ background: alpha(@n_surface, 0.72); border-radius: 26px; padding: 14px 16px 10px 14px;
+  min-width: 340px; border: 1px solid alpha(@n_fg, 0.08); }}
+button.n-lock-media-btn {{ background: transparent; color: @n_fg; border: none; box-shadow: none;
+  min-width: 34px; min-height: 34px; border-radius: 999px; padding: 0; }}
+button.n-lock-media-btn:hover {{ background: alpha(@n_fg, 0.1); }}
+progressbar.n-lock-media-bar trough {{ min-height: 3px; min-width: 0; padding: 0; border-radius: 99px; background: alpha(@n_fg, 0.15); border: none; }}
+progressbar.n-lock-media-bar progress {{ min-height: 3px; min-width: 0; margin: 0; border-radius: 99px; background: @n_fg; border: none; }}
 .n-avatar {{ border-radius: 9999px; background: @n_card; }}
 .n-avatar-initial {{ background: @n_accent; color: @n_on_accent; font-size: 34px; font-weight: 600; }}
 

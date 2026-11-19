@@ -94,7 +94,12 @@ DEFAULTS = {
     "desktop": {"icons": False, "visualizer": "off", "visualizer_height": 140,
                 "visualizer_color": "", "visualizer_opacity": 0.9},
     # lock screen: wallpaper behind the clock (dimmed) and the user's picture
-    "lock": {"wallpaper": True, "avatar": True},
+    "lock": {"wallpaper": True, "avatar": True, "media": True},
+    # look of cards and panels (themes, styles.py): corner rounding (1 = normal), see-through
+    # cards (0 = solid), font of the shell
+    "style": {"radius": 1.0, "glass": 0.0, "font": "sans"},
+    # start of a session: the dot logo, then the island writes a greeting
+    "splash": {"enabled": True, "greeting": True},
     "ontop_apps": [],                # desktop ids whose windows stay above other windows
     # system-wide equalizer (PipeWire filter-chain), gains in dB for 31 Hz … 16 kHz
     "eq": {"enabled": False, "gains": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]},

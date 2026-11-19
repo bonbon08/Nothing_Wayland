@@ -30,6 +30,8 @@ from .tray import StatusNotifierWatcher  # noqa: E402
 from .overview import Overview  # noqa: E402
 from .phone import PhoneHome, PhoneNav, PhoneStatus  # noqa: E402
 from .phone_extras import Osd, PowerMenu, Rotation  # noqa: E402
+from .splash import Splash  # noqa: E402
+from .wallswitch import WallpaperSwitcher  # noqa: E402
 
 
 BIG_SCREEN_MM = 330   # diagonal from which a screen is a computer monitor (13"), not a phone
@@ -90,6 +92,7 @@ class Shell:
         self.overview = Overview(self)
         self.osd = Osd(self)
         self.power_menu = PowerMenu(self)
+        self.wallpapers = WallpaperSwitcher(self)
         self.rotation = None       # phone: automatic rotation (phone_session_start)
         self.island = None         # (Island, monitor) on the first screen of the desktop
         # the system-wide equalizer comes back with the session when it was switched on
@@ -112,6 +115,7 @@ class Shell:
         self.sync_monitors()
         if self.phone:
             self.phone_session_start()
+        self.splash()
         self.autostart()
 
     # ------------------------------------------------------------- phone
@@ -155,8 +159,28 @@ class Shell:
         spawn(["systemctl", "--user", "restart" if restart else "start",
                "mobi.phosh.OSK.service"])
 
+    # ------------------------------------------------------------ splash
+    def splash(self):
+        """The dot logo once per session (not after a crash of the shell), then the
+        island's greeting. NOTHING_SPLASH=1 shows it every time (testing)."""
+        forced = os.environ.get("NOTHING_SPLASH") == "1"
+        if not forced and (not self.cfg.get("splash.enabled", True) or
+                           not self._first_start("splash")):
+            return
+        monitors = Gdk.Display.get_default().get_monitors()
+        if monitors.get_n_items() == 0:
+            return
+        greet = lambda: self.island and self.island[0].greet()  # noqa: E731
+        self._splashes = []
+        for i in range(monitors.get_n_items()):
+            # the greeting once, when the first screen's splash is over
+            s = Splash(self, monitors.get_item(i), greet if i == 0 else None)
+            self._splashes.append(s)
+            s.present()
+
     def close_overlays(self):
-        for overlay in (self.launcher, self.control, self.overview, self.power_menu):
+        for overlay in (self.launcher, self.control, self.overview, self.power_menu,
+                        self.wallpapers):
             overlay.close_overlay()
 
     # ---------------------------------------------------------- monitors
@@ -202,7 +226,8 @@ class Shell:
                 self.phone = phone
                 # apps started from here (the settings app) take the same layout
                 os.environ["NOTHING_LAYOUT"] = "phone" if phone else "desktop"
-                for overlay in (self.launcher, self.control, self.overview, self.power_menu):
+                for overlay in (self.launcher, self.control, self.overview, self.power_menu,
+                                self.wallpapers):
                     overlay.respect_bars(phone)
                 self.push_wm_config()
                 for mon in list(self.per_monitor):
@@ -395,6 +420,11 @@ class Shell:
                     launch_app(app, [Gio.File.new_for_path(os.path.expanduser("~")).get_uri()])
         elif name == "settings":
             self.spawn_settings()
+        elif name == "wallpapers":
+            was_open = self.wallpapers.get_visible()
+            self.close_overlays()
+            if not was_open:
+                self.wallpapers.open_overlay()
         elif name == "lock":
             self.lockscreen.lock()
         elif name == "osd_volume":

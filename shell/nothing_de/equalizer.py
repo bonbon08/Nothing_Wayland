@@ -235,6 +235,18 @@ class Equalizer:
                           params_pod(self.gains)],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    def set_output(self, name):
+        """Play through another device: the equalizer starts over in front of it.
+        False if it is off (then the caller switches the default output itself)."""
+        if not self.enabled:
+            return False
+        gains = self.gains
+        self.stop()
+        subprocess.run(["pactl", "set-default-sink", name],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.start(gains)
+        return True
+
     def stop(self):
         self.enabled = False
         if self.previous_sink:

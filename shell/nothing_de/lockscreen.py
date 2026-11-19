@@ -13,6 +13,7 @@ import gi
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 
 from . import dotmatrix, livewall, system
+from .media import fmt_time, get_media
 from .phone_extras import power_menu_box
 from .widgets import MONTHS, WEEKDAYS
 
@@ -160,6 +161,81 @@ class Logind:
                       Gio.DBusCallFlags.NONE, -1, None, None)
 
 
+def media_card():
+    """"Läuft gerade" at the bottom of the lock screen: cover, title and the controls,
+    hidden while nothing plays. `card.n_cleanup()` stops listening (when unlocked)."""
+    from gi.repository import Pango
+    from .widgets_audio import _cover, set_cover
+    media = get_media()
+    card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, halign=Gtk.Align.CENTER)
+    card.add_css_class("n-lock-media")
+    card.set_margin_top(10)
+    head = Gtk.Label(label="LÄUFT GERADE", xalign=0)
+    head.add_css_class("n-caps")
+    card.append(head)
+    row = Gtk.Box(spacing=12)
+    cover = _cover(44)
+    row.append(cover)
+    info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER)
+    title = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=26)
+    title.add_css_class("n-strong")
+    artist = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=26)
+    artist.add_css_class("n-muted")
+    info.append(title)
+    info.append(artist)
+    row.append(info)
+    buttons = {}
+    for icon, method in (("media-skip-backward-symbolic", "Previous"),
+                         ("media-playback-start-symbolic", "PlayPause"),
+                         ("media-skip-forward-symbolic", "Next")):
+        b = Gtk.Button(icon_name=icon, valign=Gtk.Align.CENTER)
+        b.add_css_class("n-lock-media-btn")
+        b.connect("clicked", lambda _b, m=method: media.call(m))
+        row.append(b)
+        buttons[method] = b
+    card.append(row)
+    bar = Gtk.ProgressBar()
+    bar.add_css_class("n-lock-media-bar")
+    times = Gtk.Box()
+    pos = Gtk.Label(xalign=0, hexpand=True)
+    length = Gtk.Label(xalign=1)
+    for w in (pos, length):
+        w.add_css_class("n-caps")
+        times.append(w)
+    card.append(bar)
+    card.append(times)
+
+    def update(*_):
+        show = media.available and bool(media.title)
+        card.set_visible(show)
+        if not show:
+            return
+        title.set_label(media.title)
+        artist.set_label(media.artist or media.player)
+        buttons["PlayPause"].set_icon_name("media-playback-pause-symbolic" if media.playing
+                                           else "media-playback-start-symbolic")
+        length.set_label(fmt_time(media.length))
+        tick()
+
+    def tick():
+        bar.set_fraction(media.progress)
+        pos.set_label(fmt_time(media.position))
+        return True
+
+    hid = media.listen(update)
+    aid = media.connect("art", lambda *_: set_cover(cover, media))
+    timer = GLib.timeout_add(1000, tick)
+
+    def gone(*_):
+        media.release(hid)
+        media.disconnect(aid)
+        GLib.source_remove(timer)
+    card.n_cleanup = gone
+    set_cover(cover, media)
+    update()
+    return card
+
+
 class LockScreen:
     def __init__(self, shell):
         self.shell = shell
@@ -229,6 +305,8 @@ class LockScreen:
 
     def _cleanup(self):
         for w in self.windows:
+            if getattr(w, "n_media", None) is not None:
+                w.n_media.n_cleanup()
             w.destroy()
         self.windows = []
         self.instance = None
@@ -302,6 +380,11 @@ class LockScreen:
             box.append(_on_screen_keyboard(entry, compact=short))
         overlay = Gtk.Overlay(child=self._background())
         overlay.add_overlay(box)
+        win.n_media = None
+        if self.shell.cfg.get("lock.media", True) and not osk:
+            # below the password field, part of the centred column
+            win.n_media = media_card()
+            box.append(win.n_media)
         win.n_overlay = overlay
         win.n_power = None
         win.n_entry = entry

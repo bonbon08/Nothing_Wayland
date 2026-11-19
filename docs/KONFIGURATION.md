@@ -47,6 +47,12 @@ Fehlende Schlüssel ergänzt sie mit den Standardwerten (`shell/nothing_de/confi
 | `desktop.visualizer_opacity` | 0–1 | `0.9` | Deckkraft des Bands |
 | `lock.wallpaper` | bool | `true` | Sperrbildschirm zeigt das Hintergrundbild (abgedunkelt) |
 | `lock.avatar` | bool | `true` | Sperrbildschirm zeigt das Benutzerbild bzw. den Anfangsbuchstaben |
+| `lock.media` | bool | `true` | Sperrbildschirm zeigt unter dem Passwortfeld, was gerade läuft (mit Steuerung) |
+| `style.radius` | Zahl 0…1,6 | `1.0` | Rundung aller Ecken (0 = eckig); Pillen und Kreise bleiben rund |
+| `style.glass` | Zahl 0…0,8 | `0.0` | Transparenz von Widgets, Dock, Menüs und Panels |
+| `style.font` | `sans`, `mono` | `sans` | Schrift der Shell |
+| `splash.enabled` | bool | `true` | Start-Animation (Punkt-Logo) einmal pro Sitzung; `NOTHING_SPLASH=1` zeigt sie bei jedem Start der Shell |
+| `splash.greeting` | bool | `true` | Die Island schreibt nach der Start-Animation „hallo“ |
 | `eq.enabled` | bool | `false` | Systemweiter Equalizer: legt über PipeWire (filter-chain) die Ausgabe „Nothing Equalizer“ an und macht sie zur Standardausgabe; aus = vorherige Ausgabe zurück |
 | `eq.gains` | 10 Zahlen, dB (−12…12) | alle `0` | Verstärkung für 31, 63, 125, 250, 500 Hz, 1, 2, 4, 8, 16 kHz; Änderungen wirken sofort ohne Aussetzer |
 | `island.enabled` | bool | `true` | Island: schwarze Pille unter der Leiste mit dem laufenden Titel; unter dem Mauszeiger und beim Titelwechsel klappt sie zur Karte mit Fortschritt und Tasten auf |

@@ -115,6 +115,10 @@ springt der Cursor an den vom Spiel gewünschten Punkt), Tablet-v2.
 | `equalizer.py` | Systemweiter 10-Band-Equalizer: eigener `pipewire -c`-Prozess mit filter-chain, Verstärkung live per `pw-cli set-param` |
 | `widgets_audio.py` | Musik-Widgets: Equalizer-Karte, Dot-Visualizer (sechs Modi, numpy), Kassette |
 | `island.py` | Die Island unter der Leiste (Layer-Surface, wächst beim Aufklappen mit) |
+| `splash.py` | Start-Animation der Sitzung (Punkt-Logo, Layer-Surface über jedem Bildschirm) |
+| `handwriting.py` | Das handschriftliche „hallo“ der Island als Bézier-Strich |
+| `styles.py` | Themes: Vorlagen, Zufallstheme, Theme-Codes (`NOTHING1:` + Base64-JSON) |
+| `wallswitch.py` | Hintergrund-Karussell (Overlay, Karten per 2D-Transformation gedreht) |
 | `livewall.py` | Live-Hintergründe (cairo-Szenen mit zwischengespeichertem Standbild) und Videos als Hintergrund |
 | `visualizer_app.py` | Die App *Visualizer* (`nothing-visualizer`) mit sechs Szenen |
 | `dotmatrix.py` | Punktmatrix-Schrift (5×7) mit cairo |

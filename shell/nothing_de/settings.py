@@ -14,7 +14,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import dotmatrix, livewall, settings_net, thumbs  # noqa: E402
+from . import dotmatrix, livewall, settings_net, styles, thumbs  # noqa: E402
 from .apps import app_icon  # noqa: E402
 from .config import ACCENTS, WALLPAPER_DIR, get_config  # noqa: E402
 from .equalizer import PRESETS, matching_preset, preset_gains  # noqa: E402
@@ -25,6 +25,7 @@ from .widgets import fetch_json  # noqa: E402
 
 PAGES = [
     ("appearance", "Darstellung", "applications-graphics-symbolic"),
+    ("themes", "Themes", "color-select-symbolic"),
     ("wifi", "WLAN", "network-wireless-symbolic"),
     ("wired", "LAN", "network-wired-symbolic"),
     ("bluetooth", "Bluetooth", "bluetooth-active-symbolic"),
@@ -259,7 +260,9 @@ class AppearancePage:
                 ("lock.wallpaper", "Hintergrundbild zeigen",
                  "Das Hintergrundbild abgedunkelt hinter Uhr und Passwortfeld"),
                 ("lock.avatar", "Benutzerbild zeigen",
-                 "Bild aus den Benutzer-Einstellungen, sonst der Anfangsbuchstabe")):
+                 "Bild aus den Benutzer-Einstellungen, sonst der Anfangsbuchstabe"),
+                ("lock.media", "Musik zeigen",
+                 "Titel, Cover und Steuerung, während etwas läuft")):
             r = Adw.SwitchRow(title=title, subtitle=sub)
             r.set_active(bool(cfg.get(key, True)))
             r.connect("notify::active", lambda r, _p, k=key: cfg.set(k, r.get_active()))
@@ -1201,6 +1204,260 @@ class AboutPage:
 
 
 # ======================================================================
+# ======================================================================
+def draw_theme_preview(cr, w, h, values):
+    """A small desktop in the theme's colours and shapes, over its wallpaper (drawn
+    by the Gtk.Picture underneath)."""
+    from .theme import PALETTES
+    import math
+    pal = PALETTES.get(values.get("theme"), PALETTES["dark"])
+    radius = float(values.get("style.radius", 1.0))
+    glass = float(values.get("style.glass", 0.0))
+    ar, ag, ab = hex_to_rgb(values.get("accent") or "#D71921")
+    cr_, cg, cb = hex_to_rgb(pal["card"])
+    fr, fg_, fb = hex_to_rgb(pal["fg"])
+    s = w / 240
+
+    def rrect(x, y, rw, rh, r):
+        r = max(0.0, min(r, rw / 2, rh / 2))
+        cr.new_sub_path()
+        cr.arc(x + rw - r, y + r, r, -math.pi / 2, 0)
+        cr.arc(x + rw - r, y + rh - r, r, 0, math.pi / 2)
+        cr.arc(x + r, y + rh - r, r, math.pi / 2, math.pi)
+        cr.arc(x + r, y + r, r, math.pi, 1.5 * math.pi)
+        cr.close_path()
+
+    # top bar
+    cr.set_source_rgba(cr_, cg, cb, 0.85)
+    cr.rectangle(0, 0, w, 9 * s)
+    cr.fill()
+    cr.set_source_rgba(ar, ag, ab, 1)
+    cr.arc(8 * s, 4.5 * s, 2.2 * s, 0, 2 * math.pi)
+    cr.fill()
+    # two widget cards
+    for x, y, cw, ch in ((10, 18, 70, 46), (10, 70, 70, 30)):
+        rrect(x * s, y * s, cw * s, ch * s, 9 * s * radius)
+        cr.set_source_rgba(cr_, cg, cb, 1 - glass)
+        cr.fill()
+    dotmatrix.draw(cr, "12:04", 16 * s, 28 * s, 2.3 * s, (fr, fg_, fb, 1))
+    cr.set_source_rgba(ar, ag, ab, 1)
+    rrect(16 * s, 80 * s, 26 * s, 9 * s, 4.5 * s)
+    cr.fill()
+    cr.set_source_rgba(fr, fg_, fb, 0.5)
+    cr.select_font_face("monospace" if values.get("style.font") == "mono" else "sans-serif")
+    cr.set_font_size(6 * s)
+    cr.move_to(16 * s, 58 * s)
+    cr.show_text("Aa  Nothing")
+    # dock
+    rrect(w / 2 - 50 * s, h - 20 * s, 100 * s, 15 * s, 7.5 * s * min(radius, 1.0) + 1)
+    cr.set_source_rgba(cr_, cg, cb, min(1.0, 1.1 - glass))
+    cr.fill()
+    for i in range(5):
+        cr.set_source_rgba(fr, fg_, fb, 0.85 if i else 1)
+        if i == 0:
+            cr.set_source_rgba(ar, ag, ab, 1)
+        cr.arc(w / 2 - 36 * s + i * 18 * s, h - 12.5 * s, 4 * s, 0, 2 * math.pi)
+        cr.fill()
+
+
+def theme_preview(values, width=240, height=135):
+    """Wallpaper picture with the drawn desktop on top."""
+    over = Gtk.Overlay()
+    pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True)
+    pic.set_size_request(width, height)
+    wp = values.get("wallpaper") or ""
+    if livewall.is_live(wp):
+        pic.set_paintable(livewall.thumbnail(wp[len(livewall.LIVE_PREFIX):], width * 2, height * 2))
+    elif wp and os.path.exists(wp) and not livewall.is_video(wp):
+        thumbs.load_async(wp, width * 2, height * 2, pic.set_paintable)
+    over.set_child(pic)
+    area = Gtk.DrawingArea(content_width=width, content_height=height)
+    area.set_draw_func(lambda _a, cr, w, h: draw_theme_preview(cr, w, h, area.n_values))
+    area.n_values = values
+    over.add_overlay(area)
+    over.set_overflow(Gtk.Overflow.HIDDEN)
+    over.set_valign(Gtk.Align.CENTER)
+    over.set_halign(Gtk.Align.START)
+    css_for(over, "overlay { border-radius: 14px; background: #000; }")
+    over.n_pic = pic
+    over.n_area = area
+    return over
+
+
+class ThemesPage:
+    """Ready-made looks, a random one, the theme as a code to share, and the fine-tuning
+    (corners, see-through cards, font)."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.widget = page("Themes")
+
+        g = group("Aktuelles Theme")
+        row = Adw.PreferencesRow(activatable=False)
+        box = Gtk.Box(spacing=18, margin_top=14, margin_bottom=14, margin_start=14, margin_end=14)
+        self.preview_holder = Gtk.Box()
+        box.append(self.preview_holder)
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER,
+                       hexpand=True)
+        self.name = Gtk.Label(xalign=0)
+        self.name.add_css_class("title-2")
+        self.desc = Gtk.Label(xalign=0, wrap=True)
+        self.desc.add_css_class("dim-label")
+        side.append(self.name)
+        side.append(self.desc)
+        btns = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=2,
+                           min_children_per_line=1, column_spacing=6, row_spacing=6)
+        for label, cb, css in (("Überrasch mich", self.surprise, "suggested-action"),
+                               ("Code kopieren", self.copy_code, None),
+                               ("Code einfügen", self.paste_code, None),
+                               ("Zurücksetzen", self.reset, None)):
+            b = Gtk.Button(label=label)
+            b.add_css_class("pill")
+            if css:
+                b.add_css_class(css)
+            b.connect("clicked", lambda *_a, cb=cb: cb())
+            btns.append(b)
+        side.append(btns)
+        box.append(side)
+        row.set_child(box)
+        g.add(row)
+        self.widget.add(g)
+
+        g = group("Vorlagen", "Ein Klick setzt Farbe, Hintergrund, Ecken, Transparenz, Schrift "
+                              "und den Look der Musik-Widgets auf einmal.")
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
+                           min_children_per_line=1 if PHONE else 2, column_spacing=10,
+                           row_spacing=10, homogeneous=True)
+        self.preset_btns = {}
+        for key, name, desc, values in styles.PRESETS:
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            card.append(theme_preview(values, 200, 112))
+            lbl = Gtk.Label(label=name, xalign=0)
+            lbl.add_css_class("heading")
+            card.append(lbl)
+            sub = Gtk.Label(label=desc, xalign=0, wrap=True, max_width_chars=24)
+            sub.add_css_class("caption")
+            sub.add_css_class("dim-label")
+            card.append(sub)
+            b = Gtk.Button(child=card)
+            b.add_css_class("flat")
+            css_for(b, "button { padding: 6px; border-radius: 18px; border: 2px solid transparent; } "
+                       "button.sel { border-color: @accent_bg_color; }")
+            b.connect("clicked", lambda _b, v=values: styles.apply(self.cfg, v))
+            flow.append(b)
+            self.preset_btns[key] = b
+        g.add(flow)
+        self.widget.add(g)
+
+        g = group("Feinschliff")
+        self.radius = Adw.SpinRow.new_with_range(0.0, 1.6, 0.1)
+        self.radius.set_title("Ecken")
+        self.radius.set_subtitle("0 = eckig, 1 = normal, 1,6 = sehr rund")
+        self.radius.set_digits(1)
+        self.radius.connect("notify::value", lambda r, _p: self._set("style.radius",
+                                                                     round(r.get_value(), 2)))
+        g.add(self.radius)
+        self.glass = Adw.SpinRow.new_with_range(0, 80, 5)
+        self.glass.set_title("Transparenz")
+        self.glass.set_subtitle("Wie viel vom Hintergrund durch Widgets, Dock und Menüs scheint (%)")
+        self.glass.connect("notify::value", lambda r, _p: self._set("style.glass",
+                                                                    round(r.get_value() / 100, 2)))
+        g.add(self.glass)
+        self.font = Adw.ComboRow(title="Schrift", model=Gtk.StringList.new(["Standard", "Monospace"]))
+        self.font.connect("notify::selected", lambda r, _p: self._set(
+            "style.font", "mono" if r.get_selected() == 1 else "sans"))
+        g.add(self.font)
+        self.widget.add(g)
+
+        g = group("Sitzungsstart")
+        for key, title, sub in (
+                ("splash.enabled", "Start-Animation",
+                 "Das Punkt-Logo setzt sich beim Anmelden zusammen"),
+                ("splash.greeting", "Begrüßung",
+                 "Die Island schreibt danach „hallo“")):
+            r = Adw.SwitchRow(title=title, subtitle=sub)
+            r.set_active(bool(cfg.get(key, True)))
+            r.connect("notify::active", lambda r, _p, k=key: cfg.set(k, r.get_active()))
+            g.add(r)
+        self.widget.add(g)
+
+        self._syncing = False
+        cfg.connect("changed", lambda *_: self.sync())
+        self.sync()
+
+    def _set(self, key, value):
+        if not self._syncing:
+            self.cfg.set(key, value)
+
+    def sync(self):
+        values = styles.current(self.cfg)
+        key = styles.matching_preset(values)
+        p = next((p for p in styles.PRESETS if p[0] == key), None)
+        self.name.set_label(p[1] if p else "Eigenes Theme")
+        self.desc.set_label(p[2] if p else "Deine eigene Mischung. Mit „Code kopieren“ lässt sie "
+                                           "sich teilen.")
+        for k, b in self.preset_btns.items():
+            if k == key:
+                b.add_css_class("sel")
+            else:
+                b.remove_css_class("sel")
+        if values != getattr(self, "_shown", None):
+            self._shown = values
+            child = self.preview_holder.get_first_child()
+            if child is not None:
+                self.preview_holder.remove(child)
+            self.preview_holder.append(theme_preview(values, 280, 158))
+        self._syncing = True
+        self.radius.set_value(float(values["style.radius"]))
+        self.glass.set_value(round(float(values["style.glass"]) * 100))
+        self.font.set_selected(1 if values["style.font"] == "mono" else 0)
+        self._syncing = False
+
+    def surprise(self):
+        styles.apply(self.cfg, styles.surprise(wallpapers=None))
+        toast(self.widget, "Neues Theme gewürfelt")
+
+    def copy_code(self):
+        code = styles.encode(styles.current(self.cfg))
+        self.widget.get_clipboard().set(code)
+        toast(self.widget, "Theme-Code kopiert")
+
+    def paste_code(self):
+        dlg = Adw.AlertDialog(heading="Theme-Code einfügen",
+                              body="Einen Code einfügen, den jemand mit „Code kopieren“ geteilt hat.")
+        entry = Gtk.Entry(placeholder_text=styles.CODE_PREFIX + " …")
+        dlg.set_extra_child(entry)
+        dlg.add_response("cancel", "Abbrechen")
+        dlg.add_response("apply", "Übernehmen")
+        dlg.set_response_appearance("apply", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("apply")
+
+        def got(clip, res):
+            try:
+                text = clip.read_text_finish(res)
+            except GLib.Error:
+                text = None
+            if text and text.strip().startswith(styles.CODE_PREFIX) and not entry.get_text():
+                entry.set_text(text.strip())
+        self.widget.get_clipboard().read_text_async(None, got)
+
+        def resp(_d, r):
+            if r != "apply":
+                return
+            values = styles.decode(entry.get_text())
+            if values is None:
+                toast(self.widget, "Das ist kein gültiger Theme-Code")
+                return
+            styles.apply(self.cfg, values)
+            toast(self.widget, "Theme übernommen")
+        dlg.connect("response", resp)
+        dlg.present(self.widget.get_root())
+
+    def reset(self):
+        styles.apply(self.cfg, styles.preset("classic"))
+        toast(self.widget, "Nothing-Standard wiederhergestellt")
+
+
 class PhonePage:
     """Telefon: Bildschirm-Timeout, Drehen, Skalierung, Bildschirmtastatur, Ansicht."""
 
@@ -1290,7 +1547,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         split.set_content(self.content_page)
         self.split = split
 
-        builders = {"phone": PhonePage, "appearance": AppearancePage,
+        builders = {"phone": PhonePage, "appearance": AppearancePage, "themes": ThemesPage,
                     "wifi": settings_net.WifiPage, "wired": settings_net.WiredPage,
                     "bluetooth": settings_net.BluetoothPage, "mobile": settings_net.MobilePage, "widgets": WidgetsPage, "dock": DockPage,
                     "displays": DisplaysPage,

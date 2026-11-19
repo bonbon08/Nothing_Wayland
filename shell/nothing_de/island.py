@@ -1,19 +1,34 @@
 """The island: a black pill under the top bar that shows what is playing.
 
 Small it shows the cover, the title and a few bars dancing to the music; under the
-pointer (and for a moment when the track changes) it grows into a card with the progress
-and the controls. It is hidden while nothing plays (config "island.enabled").
+pointer (and for a moment when the track changes) it grows into a card with two tabs:
+"Musik" (cover, controls, progress, shuffle, volume, repeat) and "Geräte" (the audio
+output to play through). It is hidden while nothing plays (config "island.enabled").
+At the start of a session it writes a handwritten "hallo" (greet, after the splash).
 """
+import datetime
 import math
 
 from gi.repository import GLib, Gtk, Pango
 
-from . import audio, layer
+from . import audio, handwriting, layer, system
+from .apps import spawn
 from .media import fmt_time, get_media
 from .theme import hex_to_rgb
 from .widgets_audio import _cover, set_cover
 
 AUTO_OPEN_MS = 3500
+GREET_WRITE = 1.9      # s to write the word
+GREET_MS = 5200        # the greeting stays this long
+WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+MONTHS = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
+
+
+def _btn(icon, cb, css="n-island-btn"):
+    b = Gtk.Button(icon_name=icon)
+    b.add_css_class(css)
+    b.connect("clicked", lambda *_: cb())
+    return b
 
 
 class Island(Gtk.ApplicationWindow):
@@ -31,11 +46,17 @@ class Island(Gtk.ApplicationWindow):
         self._close_id = None
         self._hover = False
         self._title = None
+        self._greeting = False
+        self._greet_t0 = 0
+        self._updating = False
 
         pill = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         pill.add_css_class("n-island")
         self.pill = pill
 
+        # ---- the small pill: what plays, or the greeting
+        self.head = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE,
+                              transition_duration=250, vhomogeneous=False, hhomogeneous=False)
         small = Gtk.Box(spacing=10)
         self.small_cover = _cover(24)
         small.append(self.small_cover)
@@ -45,51 +66,56 @@ class Island(Gtk.ApplicationWindow):
         self.bars = Gtk.DrawingArea(content_width=26, content_height=16, valign=Gtk.Align.CENTER)
         self.bars.set_draw_func(self._draw_bars)
         small.append(self.bars)
-        pill.append(small)
+        self.head.add_named(small, "music")
 
+        greet = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        greet.set_margin_start(10)
+        greet.set_margin_end(4)
+        self.hand = Gtk.DrawingArea(content_width=150, content_height=44,
+                                    halign=Gtk.Align.CENTER)
+        self.hand.set_draw_func(self._draw_hand)
+        greet.append(self.hand)
+        self.greet_sub = Gtk.Label(label="Willkommen bei Nothing")
+        self.greet_sub.add_css_class("n-island-sub")
+        greet.append(self.greet_sub)
+        self.head.add_named(greet, "greet")
+        pill.append(self.head)
+
+        # ---- the open card
         big = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        big.set_margin_top(12)
-        row = Gtk.Box(spacing=12)
-        self.cover = _cover(54)
-        row.append(self.cover)
-        info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True,
-                       valign=Gtk.Align.CENTER)
-        self.title = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=24)
-        self.title.add_css_class("n-strong")
-        self.artist = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=24)
-        self.artist.add_css_class("n-island-muted")
-        self.source = Gtk.Label(xalign=0)
-        self.source.add_css_class("n-caps")
-        for w in (self.source, self.title, self.artist):
-            info.append(w)
-        row.append(info)
-        big.append(row)
-        prog = Gtk.Box(spacing=8)
-        self.pos = Gtk.Label()
-        self.pos.add_css_class("n-caps")
-        self.len = Gtk.Label()
-        self.len.add_css_class("n-caps")
-        self.progress = Gtk.DrawingArea(content_height=10, hexpand=True, valign=Gtk.Align.CENTER)
-        self.progress.set_draw_func(self._draw_progress)
-        seek = Gtk.GestureClick()
-        seek.connect("released", lambda _g, _n, x, _y:
-                     self.media.seek(x / max(1, self.progress.get_width())))
-        self.progress.add_controller(seek)
-        prog.append(self.pos)
-        prog.append(self.progress)
-        prog.append(self.len)
-        big.append(prog)
-        ctl = Gtk.Box(spacing=18, halign=Gtk.Align.CENTER)
-        for icon, method in (("media-skip-backward-symbolic", "Previous"),
-                             ("media-playback-start-symbolic", "PlayPause"),
-                             ("media-skip-forward-symbolic", "Next")):
-            b = Gtk.Button(icon_name=icon)
-            b.add_css_class("n-island-btn")
-            b.connect("clicked", lambda _b, m=method: self.media.call(m))
-            ctl.append(b)
-            if method == "PlayPause":
-                self.play_btn = b
-        big.append(ctl)
+        big.set_margin_top(8)
+        tabs = Gtk.Box(spacing=14)
+        self.tab_btns = {}
+        for key, label in (("music", "Musik"), ("devices", "Geräte")):
+            b = Gtk.Button(label=label)
+            b.add_css_class("n-island-tab")
+            b.connect("clicked", lambda _b, k=key: self._show_tab(k))
+            tabs.append(b)
+            self.tab_btns[key] = b
+        tabs.append(Gtk.Box(hexpand=True))
+        tabs.append(_btn("view-app-grid-symbolic", self._open_visualizer, "n-island-small"))
+        big.append(tabs)
+
+        self.pages = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
+                               transition_duration=180, vhomogeneous=False)
+        self.pages.add_named(self._music_page(), "music")
+        self.devices = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.pages.add_named(self.devices, "devices")
+        big.append(self.pages)
+
+        foot = Gtk.Box(spacing=8)
+        self.date = Gtk.Label(xalign=0, hexpand=True)
+        self.date.add_css_class("n-island-foot")
+        foot.append(self.date)
+        dots = Gtk.Label(label="• • •")
+        dots.add_css_class("n-island-foot")
+        foot.append(dots)
+        self.player_lbl = Gtk.Label(xalign=1, hexpand=True)
+        self.player_lbl.add_css_class("n-island-foot")
+        foot.append(self.player_lbl)
+        big.append(foot)
+        self._show_tab("music")
+
         self.revealer = Gtk.Revealer(child=big, reveal_child=False,
                                      transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
                                      transition_duration=220)
@@ -112,6 +138,72 @@ class Island(Gtk.ApplicationWindow):
         self.connect("destroy", lambda *_: self._shutdown())
         self._art()
         self.update()
+
+    def _music_page(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        row = Gtk.Box(spacing=14)
+        self.cover = _cover(72)
+        self.cover.add_css_class("n-island-art")
+        row.append(self.cover)
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True,
+                        valign=Gtk.Align.CENTER)
+        self.source = Gtk.Label(xalign=0)
+        self.source.add_css_class("n-island-foot")
+        self.title = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=24)
+        self.title.add_css_class("n-strong")
+        self.artist = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=24)
+        self.artist.add_css_class("n-island-muted")
+        for w in (self.source, self.title, self.artist):
+            right.append(w)
+        ctl = Gtk.Box(spacing=10, margin_top=6)
+        ctl.append(_btn("media-skip-backward-symbolic", lambda: self.media.call("Previous")))
+        self.play_btn = _btn("media-playback-start-symbolic",
+                             lambda: self.media.call("PlayPause"), "n-island-play")
+        ctl.append(self.play_btn)
+        ctl.append(_btn("media-skip-forward-symbolic", lambda: self.media.call("Next")))
+        right.append(ctl)
+        row.append(right)
+        page.append(row)
+
+        prog = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.progress = Gtk.DrawingArea(content_height=10, hexpand=True)
+        self.progress.set_draw_func(self._draw_progress)
+        seek = Gtk.GestureClick()
+        seek.connect("released", lambda _g, _n, x, _y:
+                     self.media.seek(x / max(1, self.progress.get_width())))
+        self.progress.add_controller(seek)
+        prog.append(self.progress)
+        times = Gtk.Box()
+        self.pos = Gtk.Label(xalign=0, hexpand=True)
+        self.pos.add_css_class("n-island-foot")
+        self.len = Gtk.Label(xalign=1)
+        self.len.add_css_class("n-island-foot")
+        times.append(self.pos)
+        times.append(self.len)
+        prog.append(times)
+        page.append(prog)
+
+        vol = Gtk.Box(spacing=6)
+        self.shuffle_btn = _btn("media-playlist-shuffle-symbolic", self.media.toggle_shuffle,
+                                "n-island-small")
+        self.shuffle_btn.set_tooltip_text("Zufällige Wiedergabe")
+        vol.append(self.shuffle_btn)
+        self.vol_icon = _btn("audio-volume-high-symbolic", self._toggle_mute, "n-island-small")
+        vol.append(self.vol_icon)
+        self.volume = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1, 0.01)
+        self.volume.set_draw_value(False)
+        self.volume.set_hexpand(True)
+        self.volume.set_focusable(False)
+        self.volume.add_css_class("n-island-volume")
+        self.volume.connect("value-changed", lambda s: None if self._updating
+                            else system.set_volume(s.get_value()))
+        vol.append(self.volume)
+        self.loop_btn = _btn("media-playlist-repeat-symbolic", self.media.cycle_loop,
+                             "n-island-small")
+        self.loop_btn.set_tooltip_text("Wiederholen")
+        vol.append(self.loop_btn)
+        page.append(vol)
+        return page
 
     # ------------------------------------------------------------------ state
     def _shutdown(self):
@@ -144,26 +236,41 @@ class Island(Gtk.ApplicationWindow):
 
     def update(self):
         m = self.media
-        wanted = bool(self.cfg.get("island.enabled", True)) and m.available and bool(m.title)
+        music = bool(self.cfg.get("island.enabled", True)) and m.available and bool(m.title)
+        wanted = music or self._greeting
         if wanted != self.get_visible():
             self.set_visible(wanted)
-        self._listen(wanted and m.playing)
-        if not wanted:
+        self._listen(music and m.playing)
+        if not music:
             return
         self.small_title.set_label(m.title)
         self.title.set_label(m.title)
         self.artist.set_label(m.artist)
         self.source.set_label(m.player.upper())
+        self.player_lbl.set_label(m.player)
         self.play_btn.set_icon_name("media-playback-pause-symbolic" if m.playing
                                     else "media-playback-start-symbolic")
         self.len.set_label(fmt_time(m.length))
+        self.shuffle_btn.set_sensitive(m.shuffle is not None)
+        self._mark(self.shuffle_btn, bool(m.shuffle))
+        self.loop_btn.set_sensitive(m.loop is not None)
+        self._mark(self.loop_btn, m.loop in ("Track", "Playlist"))
+        self.loop_btn.set_icon_name("media-playlist-repeat-song-symbolic" if m.loop == "Track"
+                                    else "media-playlist-repeat-symbolic")
         self._tick()
         if m.title != self._title:
             first = self._title is None
             self._title = m.title
-            if not first and m.playing:
+            if not first and m.playing and not self._greeting:
                 # a new track: show it for a moment
                 self._open(auto=True)
+
+    @staticmethod
+    def _mark(btn, on):
+        if on:
+            btn.add_css_class("on")
+        else:
+            btn.remove_css_class("on")
 
     def _tick(self):
         if self.get_visible():
@@ -173,9 +280,109 @@ class Island(Gtk.ApplicationWindow):
                 self.bars.queue_draw()
         return True
 
+    # ----------------------------------------------------------- greeting
+    def greet(self):
+        """Write "hallo" into the pill (after the splash at the start of a session)."""
+        if not self.cfg.get("splash.greeting", True):
+            return
+        name = GLib.get_real_name() or ""
+        first = name.split()[0] if name and name != "Unknown" else ""
+        self.greet_sub.set_label(f"Willkommen, {first}" if first else "Willkommen bei Nothing")
+        self._greeting = True
+        self._greet_t0 = GLib.get_monotonic_time()
+        self.head.set_visible_child_name("greet")
+        self.pill.add_css_class("greet")
+        self.update()
+        self.hand.add_tick_callback(self._greet_tick)
+        GLib.timeout_add(GREET_MS, self._end_greeting)
+
+    def _greet_tick(self, _w, _clock):
+        self.hand.queue_draw()
+        return self._greeting and \
+            (GLib.get_monotonic_time() - self._greet_t0) / 1e6 < GREET_WRITE + 0.5
+
+    def _end_greeting(self):
+        self._greeting = False
+        self.pill.remove_css_class("greet")
+        self.head.set_visible_child_name("music")
+        self._shrink()
+        self.update()
+        return False
+
+    def _draw_hand(self, _a, cr, w, h):
+        t = (GLib.get_monotonic_time() - self._greet_t0) / 1e6
+        frac = handwriting.ease(t / GREET_WRITE)
+        tip = handwriting.draw(cr, 2, 2, w - 4, h - 4, frac, (1, 1, 1, 1))
+        if tip and frac < 1:
+            r, g, b, _ = self._accent()
+            cr.set_source_rgba(r, g, b, 0.9)
+            cr.arc(tip[0], tip[1], 2.6, 0, 2 * math.pi)
+            cr.fill()
+
+    # ------------------------------------------------------------ devices
+    def _show_tab(self, key):
+        self.pages.set_visible_child_name(key)
+        for k, b in self.tab_btns.items():
+            self._mark(b, k == key)
+        if key == "devices":
+            system.get_sinks(self._fill_devices)
+
+    def _fill_devices(self, sinks):
+        while (child := self.devices.get_first_child()) is not None:
+            self.devices.remove(child)
+        eq = getattr(self.shell, "equalizer", None)
+        through_eq = eq.previous_sink if eq is not None and eq.enabled else None
+        if not sinks:
+            lbl = Gtk.Label(label="Keine Audio-Ausgabe gefunden", xalign=0)
+            lbl.add_css_class("n-island-muted")
+            self.devices.append(lbl)
+            return
+        for name, desc, default in sinks:
+            active = name == through_eq if through_eq else default
+            row = Gtk.Box(spacing=10)
+            icon = "audio-headphones-symbolic" if "head" in (name + desc).lower() or \
+                "bluez" in name else "audio-speakers-symbolic"
+            row.append(Gtk.Image(icon_name=icon))
+            lbl = Gtk.Label(label=desc, xalign=0, hexpand=True,
+                            ellipsize=Pango.EllipsizeMode.END, max_width_chars=30)
+            row.append(lbl)
+            if active:
+                row.append(Gtk.Image(icon_name="object-select-symbolic"))
+            b = Gtk.Button(child=row)
+            b.add_css_class("n-island-device")
+            self._mark(b, active)
+            b.connect("clicked", lambda _b, n=name: self._pick_device(n))
+            self.devices.append(b)
+
+    def _pick_device(self, name):
+        eq = getattr(self.shell, "equalizer", None)
+        refresh = lambda: system.get_sinks(self._fill_devices)  # noqa: E731
+        if eq is not None and eq.set_output(name):
+            GLib.timeout_add(600, lambda: (refresh(), False)[1])
+        else:
+            system.set_default_sink(name, refresh)
+
+    # ------------------------------------------------------------- volume
+    def _refresh_volume(self):
+        def got(v, muted):
+            self._updating = True
+            self.volume.set_value(min(1.0, v or 0))
+            self.vol_icon.set_icon_name(system.volume_icon(v, muted))
+            self._updating = False
+        system.get_volume(got)
+
+    def _toggle_mute(self):
+        system.toggle_mute()
+        GLib.timeout_add(200, lambda: (self._refresh_volume(), False)[1])
+
+    def _open_visualizer(self):
+        spawn(["nothing-visualizer"])
+
     # ------------------------------------------------------------- open/close
     def _set_hover(self, on):
         self._hover = on
+        if self._greeting:
+            return
         if on:
             self._open()
         elif self._close_id is None:
@@ -185,6 +392,11 @@ class Island(Gtk.ApplicationWindow):
         if self._close_id is not None:
             GLib.source_remove(self._close_id)
             self._close_id = None
+        now = datetime.datetime.now()
+        self.date.set_label(f"{WEEKDAYS[now.weekday()]}, {now.day}. {MONTHS[now.month - 1]}")
+        self._refresh_volume()
+        if self.pages.get_visible_child_name() == "devices":
+            system.get_sinks(self._fill_devices)
         self.pill.add_css_class("open")
         self.revealer.set_reveal_child(True)
         if auto:
